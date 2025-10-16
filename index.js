@@ -26,12 +26,17 @@ const {
 const { WhatsApp } = require("./lib/index");
 const { initializeLang } = require("./lang/iLang");
 const manager = require("./lib/manager");
+
 const app = express();
 const PORT = process.env.PORT || 8000;
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-var session;
+
 const msgRetryCounterCache = new NodeCache();
+
+// ✅ FIX: Store temporary pairing sessions
+const pairingSessions = new Map(); // { number: socket }
 
 async function isBlocked(number) {
   try {
@@ -43,11 +48,16 @@ async function isBlocked(number) {
   }
 }
 
+/**
+ * Create a pairing session (temporary connection for QR/pairing code only)
+ */
 async function connector(Num, res) {
   const sessionDir = path.join(__dirname, "sessions", Num);
   await fs.ensureDir(sessionDir);
-  var { state, saveCreds } = await useMultiFileAuthState(sessionDir);
-  session = makeWASocket({
+
+  const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
+
+  const session = makeWASocket({
     auth: {
       creds: state.creds,
       keys: makeCacheableSignalKeyStore(
@@ -59,41 +69,82 @@ async function connector(Num, res) {
     browser: Browsers.macOS("Opera"),
     printQRInTerminal: false,
   });
+
+  // ✅ Store pairing session
+  pairingSessions.set(Num, session);
+
   if (!session.authState.creds.registered) {
     await delay(1500);
     Num = Num.replace(/[^0-9]/g, "");
-    const customPairingCode = "KIRAPAIR";
-    var code = await session.requestPairingCode(Num, customPairingCode);
-    console.log(`📱 Pairing code for ${Num}: ${code}`);
-    res.send({
-      status: "success",
-      code: code?.match(/.{1,4}/g)?.join("-"),
-      number: Num,
-      message: "Enter this code in WhatsApp: Link a Device",
-    });
+
+    try {
+      const code = await session.requestPairingCode(Num);
+      console.log(`📱 Pairing code for ${Num}: ${code}`);
+
+      res.send({
+        status: "success",
+        code: code?.match(/.{1,4}/g)?.join("-") || code,
+        number: Num,
+        message: "Enter this code in WhatsApp: Link a Device",
+      });
+    } catch (err) {
+      console.error(`❌ Failed to get pairing code for ${Num}:`, err);
+      res.status(500).send({
+        status: "error",
+        message: "Failed to generate pairing code",
+        error: err.message,
+      });
+
+      // Clean up failed session
+      if (session) {
+        session.end(new Error("Pairing code generation failed"));
+      }
+      pairingSessions.delete(Num);
+      return;
+    }
   }
+
   session.ev.on("creds.update", async () => {
     try {
       await saveCreds();
+      console.log(`✅ Credentials saved for ${Num}`);
     } catch (err) {
-      console.error(`❌ Failed to save credentials file for ${Num}:`, err);
+      console.error(`❌ Failed to save credentials for ${Num}:`, err);
     }
   });
+
   session.ev.on("connection.update", async (update) => {
-    var { connection, lastDisconnect } = update;
+    const { connection, lastDisconnect } = update;
+
     if (connection === "open") {
+      console.log(`✅ Pairing successful for ${Num}`);
+
       const release = await mutex.acquire();
       try {
+        // ✅ Check if already connected/connecting via manager
         if (manager.isConnected(Num) || manager.isConnecting(Num)) {
+          console.log(`⚠️ ${Num} is already connected, skipping startBot`);
+          if (session) {
+            session.end(new Error("Already connected"));
+          }
+          pairingSessions.delete(Num);
+          release();
           return;
         }
 
-        await delay(3000);
+        // ✅ Close pairing session properly
+        console.log(`🔄 Closing pairing session for ${Num}...`);
+        await delay(2000);
+
         if (session) {
-          session.end();
-          session = null;
+          session.end(new Error("Switching to main bot"));
         }
-        await delay(5000);
+        pairingSessions.delete(Num);
+
+        await delay(3000);
+
+        // ✅ Start the actual bot
+        console.log(`🚀 Starting main bot for ${Num}...`);
         await startBot(Num);
       } catch (err) {
         console.error(`❌ Failed to start bot for ${Num}:`, err.message);
@@ -102,11 +153,18 @@ async function connector(Num, res) {
         release();
       }
     } else if (connection === "close") {
-      var reason = lastDisconnect?.error?.output?.statusCode;
+      const reason = lastDisconnect?.error?.output?.statusCode;
+      console.log(`❌ Pairing session closed for ${Num}, reason: ${reason}`);
+
+      // ✅ Handle pairing session reconnection
       reconn(reason, Num, res);
     }
   });
 }
+
+/**
+ * Reconnect pairing session if needed
+ */
 function reconn(reason, Num, res) {
   if (
     [
@@ -115,11 +173,29 @@ function reconn(reason, Num, res) {
       DisconnectReason.restartRequired,
     ].includes(reason)
   ) {
-    connector(Num, res);
+    console.log(`🔄 Reconnecting pairing session for ${Num}...`);
+
+    // Clean up old session
+    const oldSession = pairingSessions.get(Num);
+    if (oldSession) {
+      oldSession.end(new Error("Reconnecting"));
+      pairingSessions.delete(Num);
+    }
+
+    // Retry connection
+    setTimeout(() => {
+      connector(Num, res);
+    }, 3000);
   } else {
-    if (session) {
-      session.end();
-      session = null;
+    console.log(
+      `⛔ Not reconnecting pairing session for ${Num} (reason: ${reason})`
+    );
+
+    // Clean up
+    const oldSession = pairingSessions.get(Num);
+    if (oldSession) {
+      oldSession.end(new Error("Connection terminated"));
+      pairingSessions.delete(Num);
     }
   }
 }
@@ -129,18 +205,32 @@ function reconn(reason, Num, res) {
  */
 async function startBot(number) {
   try {
+    console.log(`🔄 [${number}] Starting bot...`);
+
     const sessionDir = path.join(__dirname, "sessions", number);
     await fs.ensureDir(sessionDir);
+
+    // ✅ Create bot instance using WhatsApp class
     const bot = new WhatsApp(number);
     const conn = await bot.connect();
+
+    if (!conn) {
+      console.error(`❌ [${number}] Failed to create connection`);
+      return null;
+    }
+
+    // ✅ Save credentials to database
     const credPath = path.join(sessionDir, "creds.json");
     if (fs.existsSync(credPath)) {
       const creds = fs.readJSONSync(credPath);
       await saveSession(number, creds);
+      console.log(`✅ [${number}] Session saved to database`);
     }
+
     return conn;
   } catch (err) {
     console.error(`❌ Failed to start bot for ${number}:`, err);
+    return null;
   }
 }
 
@@ -149,7 +239,7 @@ async function startBot(number) {
  */
 async function restoreSessions() {
   try {
-    console.log("🌱 Syncing Database");
+    console.log("🌱 Syncing Database...");
     await config.DATABASE.sync();
 
     const baseDir = path.join(__dirname, "sessions");
@@ -178,17 +268,21 @@ async function restoreSessions() {
       } sessions at ${new Date().toLocaleString()}...`
     );
 
+    // ✅ Restore sessions with delay to avoid rate limits
     for (const number of allNumbers) {
       try {
         const sessionDir = path.join(baseDir, number);
         await fs.ensureDir(sessionDir);
         const credPath = path.join(sessionDir, "creds.json");
+
         let creds;
+
+        // 4️⃣ If folder has creds → sync to DB
         if (fs.existsSync(credPath)) {
           creds = await fs.readJSON(credPath);
           await saveSession(number, creds);
         }
-        // 5️⃣ Else if DB has creds → write it to folder
+        // 5️⃣ Else if DB has creds → write to folder
         else {
           const dbSession = dbSessions.find((s) => s.number === number);
           if (dbSession?.creds) {
@@ -201,6 +295,9 @@ async function restoreSessions() {
         if (creds) {
           console.log(`🔄 Restoring session for ${number}...`);
           await startBot(number);
+
+          // ✅ Add delay between sessions to avoid connection issues
+          await delay(2000);
         } else {
           await deleteSession(number);
           console.log(`⚠️ No creds found for ${number}, skipping...`);
@@ -214,37 +311,66 @@ async function restoreSessions() {
   }
 }
 
+// ==================== ROUTES ====================
+
 app.get("/", (req, res) => {
   res.json({
     status: "online",
+    timestamp: new Date().toISOString(),
+    sessions: manager.connections.size,
   });
 });
+
 // 🔹 Block user and delete session
 app.get("/block", async (req, res) => {
   let num = req.query.number;
-  if (!num)
-    return res.status(400).send({ error: "Please provide ?number=XXXXXXXXXX" });
+  if (!num) {
+    return res.status(400).send({
+      error: "Please provide ?number=XXXXXXXXXX",
+    });
+  }
 
   num = num.replace(/[^0-9]/g, "");
+
   try {
     // 🔹 Mark user as blocked in DB
-    await set(ref(db, "blocked/" + num), { blocked: true });
+    await set(ref(db, "blocked/" + num), {
+      blocked: true,
+      timestamp: Date.now(),
+    });
 
     // 🔹 Check if session folder exists
     const sessionPath = path.join(__dirname, "sessions", num);
+
     if (fs.existsSync(sessionPath)) {
-      if (sessions[num]) delete sessions[num];
-      await deleteSession(num).catch(() => {}); // ignore if already deleted
+      // ✅ Close active connection
+      const conn = manager.getConnection(num);
+      if (conn) {
+        try {
+          await conn.logout();
+        } catch (e) {
+          console.error(`Error logging out ${num}:`, e);
+        }
+      }
+
+      // ✅ Clean up
+      await deleteSession(num).catch(() => {});
       await fs.remove(sessionPath);
       manager.removeConnection(num);
       manager.removeConnecting(num);
+
+      // ✅ Clean up pairing session if exists
+      const pairingSession = pairingSessions.get(num);
+      if (pairingSession) {
+        pairingSession.end(new Error("Blocked"));
+        pairingSessions.delete(num);
+      }
 
       return res.send({
         status: "success",
         message: `${num} blocked & session deleted`,
       });
     } else {
-      // If no session folder found
       return res.send({
         status: "success",
         message: `${num} blocked (no session folder found)`,
@@ -263,12 +389,18 @@ app.get("/block", async (req, res) => {
 // 🔹 Unblock user
 app.get("/unblock", async (req, res) => {
   let num = req.query.number;
-  if (!num) return res.send({ error: "Please provide ?number=XXXXXXXXXX" });
+  if (!num) {
+    return res.send({ error: "Please provide ?number=XXXXXXXXXX" });
+  }
 
   num = num.replace(/[^0-9]/g, "");
+
   try {
     await remove(ref(db, "blocked/" + num));
-    res.send({ success: true, message: `${num} unblocked` });
+    res.send({
+      success: true,
+      message: `${num} unblocked`,
+    });
   } catch (err) {
     res.send({ error: err.message });
   }
@@ -287,9 +419,11 @@ app.get("/blocklist", async (req, res) => {
     res.send({ error: err.message });
   }
 });
+
 // 🔹 Get pairing code
 app.get("/pair", async (req, res) => {
-  var Num = req.query.code;
+  let Num = req.query.code;
+
   if (!Num) {
     return res.status(418).json({
       status: "error",
@@ -338,16 +472,29 @@ app.get("/pair", async (req, res) => {
     });
   }
 
-  var release = await mutex.acquire();
+  // Check if pairing session exists
+  if (pairingSessions.has(Num)) {
+    return res.status(409).json({
+      status: "error",
+      message: "Pairing already in progress",
+      pairing: true,
+    });
+  }
+
+  const release = await mutex.acquire();
   try {
     await connector(Num, res);
   } catch (error) {
     console.error(`❌ Pairing error for ${Num}:`, error);
-    res.status(500).json({
-      status: "error",
-      error: "Failed to connect",
-      details: error.message,
-    });
+
+    // ✅ Only send response if not already sent
+    if (!res.headersSent) {
+      res.status(500).json({
+        status: "error",
+        error: "Failed to connect",
+        details: error.message,
+      });
+    }
   } finally {
     release();
   }
@@ -356,18 +503,21 @@ app.get("/pair", async (req, res) => {
 /**
  * Route: List active sessions
  */
-// List active sessions
 app.get("/sessions", (req, res) => {
   const sessions = {};
-  for (const [num, conn] of manager.connections) {
+
+  // ✅ FIX: Iterate over Map correctly
+  for (const [num, conn] of manager.connections.entries()) {
     sessions[num] = {
       connected: !!conn?.user,
-      user: conn?.user?.id || "unknown",
+      user: conn?.user?.name || "unknown",
       jid: conn?.user?.id || null,
     };
   }
+
   res.json({
     total: manager.connections.size,
+    pairing: pairingSessions.size,
     sessions,
   });
 });
@@ -377,7 +527,10 @@ app.get("/sessions", (req, res) => {
  */
 app.get("/delete", async (req, res) => {
   let num = req.query.number?.replace(/[^0-9]/g, "");
-  if (!num) return res.send({ error: "Please provide ?number=XXXXXXXXXX" });
+
+  if (!num) {
+    return res.send({ error: "Please provide ?number=XXXXXXXXXX" });
+  }
 
   try {
     const sessionPath = path.join(__dirname, "sessions", num);
@@ -388,28 +541,49 @@ app.get("/delete", async (req, res) => {
         message: "No session found for this number",
       });
     }
+
+    // ✅ Close connection if active
+    const conn = manager.getConnection(num);
+    if (conn) {
+      try {
+        await conn.logout();
+      } catch (e) {
+        console.error(`Error logging out ${num}:`, e);
+      }
+    }
+
+    // ✅ Clean up
     await deleteSession(num);
-    delete sessions[num];
     await fs.remove(sessionPath);
     manager.removeConnection(num);
     manager.removeConnecting(num);
 
+    // ✅ Clean up pairing session
+    const pairingSession = pairingSessions.get(num);
+    if (pairingSession) {
+      pairingSession.end(new Error("Deleted"));
+      pairingSessions.delete(num);
+    }
+
     res.send({
       status: "success",
-      message: `Deleted session folder for ${num}`,
+      message: `Deleted session for ${num}`,
     });
 
-    setTimeout(() => process.exit(0), 5000);
+    // Optional: Restart server after deletion
+    // setTimeout(() => process.exit(0), 5000);
   } catch (err) {
     console.error(`❌ Failed to delete session for ${num}:`, err);
-    res.send({ status: "error", message: "Failed to delete session" });
+    res.send({
+      status: "error",
+      message: "Failed to delete session",
+      error: err.message,
+    });
   }
 });
 
-/**
- * Start Express server
- */
 // ==================== ERROR HANDLING ====================
+
 app.use((err, req, res, next) => {
   console.error("Express error:", err);
   res.status(500).json({
@@ -435,11 +609,33 @@ app.use((req, res) => {
 });
 
 // ==================== GRACEFUL SHUTDOWN ====================
+
 async function shutdown() {
   console.log("\n👋 Shutting down gracefully...");
 
+  // Close all connections
+  for (const [num, conn] of manager.connections.entries()) {
+    try {
+      console.log(`Closing connection for ${num}...`);
+      await conn.logout();
+    } catch (e) {
+      console.error(`Error closing ${num}:`, e);
+    }
+  }
+
+  // Close pairing sessions
+  for (const [num, session] of pairingSessions.entries()) {
+    try {
+      console.log(`Closing pairing session for ${num}...`);
+      session.end(new Error("Server shutdown"));
+    } catch (e) {
+      console.error(`Error closing pairing for ${num}:`, e);
+    }
+  }
+
   process.exit(0);
 }
+
 process.on("SIGTERM", shutdown);
 process.on("SIGINT", shutdown);
 
@@ -453,6 +649,7 @@ process.on("unhandledRejection", (reason, promise) => {
 });
 
 // ==================== START SERVER ====================
+
 app.listen(PORT, async () => {
   console.log(`
 ╔═══════════════════════════════════════╗
@@ -463,10 +660,12 @@ app.listen(PORT, async () => {
   `);
 
   // Restore all sessions
-  // await initializeLang();
-  await initSessions();
-  await restoreSessions();
-  console.log(`
+  try {
+    // await initializeLang();
+    await initSessions();
+    await restoreSessions();
+
+    console.log(`
     ✅ Server ready!
     📊 Active sessions: ${manager.connections.size}
     🔗 Endpoints:
@@ -477,5 +676,8 @@ app.listen(PORT, async () => {
        - GET  /block?number=NUM          (Block user)
        - GET  /unblock?number=NUM        (Unblock user)
        - GET  /blocklist                 (View blocked users)
-      `);
+    `);
+  } catch (err) {
+    console.error("❌ Failed to restore sessions:", err);
+  }
 });
