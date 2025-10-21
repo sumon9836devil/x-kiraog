@@ -6,9 +6,11 @@ Module({
   package: "group",
   description: "Tag all group members with custom style",
 })(async (m, text) => {
-  await m.loadGroupInfo(m.from);
   if (!m.isGroup) return m.send(theme.isGroup);
-  if (!m.isAdmin || !m.isfromMe) return m.send(theme.isAdmin);
+  await m.loadGroupInfo();
+  if (!m.isAdmin && !m.isFromMe) {
+    return m.send(theme.isAdmin);
+  }
   try {
     const conn = m.conn;
     const from = m.from;
@@ -196,5 +198,58 @@ Module({
   } catch (err) {
     console.error("admin tag error:", err);
     await m.sendReply("❌ An error occurred while tagging admins.");
+  }
+});
+
+Module({
+  command: "randomtag",
+  package: "group",
+  description: "Tag random members",
+})(async (m, text) => {
+  if (!m.isGroup) return m.send(theme.isGroup);
+
+  await m.loadGroupInfo();
+
+  try {
+    const count = parseInt(text) || 5;
+    const participants = m.groupParticipants;
+
+    // Shuffle and pick random members
+    const shuffled = participants.sort(() => 0.5 - Math.random());
+    const selected = shuffled.slice(0, Math.min(count, participants.length));
+
+    let tagText = `🎲 *Random ${count} Members*\n\n`;
+    const mentions = [];
+
+    for (const p of selected) {
+      tagText += `✨ @${p.id.split("@")[0]}\n`;
+      mentions.push(p.id);
+    }
+
+    await m.send({ text: tagText, mentions });
+  } catch (err) {
+    await m.reply("❌ Error: " + err.message);
+  }
+});
+
+Module({
+  command: "hidetag",
+  package: "group",
+  description: "Tag all without showing names",
+})(async (m, text) => {
+  if (!m.isGroup) return m.send(theme.isGroup);
+
+  await m.loadGroupInfo();
+
+  if (!m.isAdmin && !m.isFromMe) return m.send(theme.isAdmin);
+
+  try {
+    const message = text || "📢 Everyone has been tagged!";
+    const mentions = m.groupParticipants.map((p) => p.id);
+
+    await m.send({ text: message, mentions });
+    await m.react("👻");
+  } catch (err) {
+    await m.reply("❌ Error: " + err.message);
   }
 });

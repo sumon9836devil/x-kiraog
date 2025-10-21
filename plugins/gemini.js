@@ -1,4 +1,4 @@
-const { Module } = require('../lib/plugins');
+/*const { Module } = require('../lib/plugins');
 const axios = require('axios');
 
 Module({
@@ -25,3 +25,4 @@ Module({
     const output = res.data?.candidates?.[0]?.content?.parts?.[0]?.text || 'err';
     await message.send(output);
 });
+*/

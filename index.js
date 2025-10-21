@@ -15,7 +15,7 @@ const {
   delay,
   makeCacheableSignalKeyStore,
   DisconnectReason,
-} = require("baileys-mod");
+} = require("baileys");
 
 const {
   initSessions,
@@ -609,35 +609,6 @@ app.use((req, res) => {
 });
 
 // ==================== GRACEFUL SHUTDOWN ====================
-
-async function shutdown() {
-  console.log("\n👋 Shutting down gracefully...");
-
-  // Close all connections
-  for (const [num, conn] of manager.connections.entries()) {
-    try {
-      console.log(`Closing connection for ${num}...`);
-      await conn.logout();
-    } catch (e) {
-      console.error(`Error closing ${num}:`, e);
-    }
-  }
-
-  // Close pairing sessions
-  for (const [num, session] of pairingSessions.entries()) {
-    try {
-      console.log(`Closing pairing session for ${num}...`);
-      session.end(new Error("Server shutdown"));
-    } catch (e) {
-      console.error(`Error closing pairing for ${num}:`, e);
-    }
-  }
-
-  process.exit(0);
-}
-
-process.on("SIGTERM", shutdown);
-process.on("SIGINT", shutdown);
 
 // Handle uncaught errors
 process.on("uncaughtException", (err) => {

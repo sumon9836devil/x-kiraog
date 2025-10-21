@@ -1,249 +1,394 @@
-<img src="https://files.catbox.moe/lq7nwm.jpg" alt="Garfield Bot" width="300"/>
+Basic Usage Example
+// In your command/plugin file
+module.exports = {
+name: "example",
+description: "Example command",
+category: "general",
+async execute(message, args) {
+// Your code here
+}
+};
 
-# WhatsApp Bot
+1. Basic Message Properties
+   // Access message information
+   console.log(message.body); // Message text
+   console.log(message.from); // Chat ID
+   console.log(message.sender); // Sender ID
+   console.log(message.pushName); // Sender name
+   console.log(message.isGroup); // true/false
+   console.log(message.isFromMe); // true/false (if bot sent it)
+   console.log(message.id); // Message ID
+   console.log(message.type); // Message type
+2. Send Messages
+   // Send simple text
+   await message.send("Hello World!");
 
-> A powerful and feature-rich WhatsApp bot built with Baileys library
+// Send with formatting
+await message.send("_Bold_ _italic_ ~strikethrough~");
 
-## Quick Setup
+// Send image
+await message.send({
+image: buffer, // or { url: "image_url" }
+caption: "Check this out!"
+});
 
-### 1. Get Your Session ID
+// Send video
+await message.send({
+video: buffer,
+caption: "Amazing video!",
+mimetype: "video/mp4"
+});
 
-> Get session id
+// Send audio
+await message.send({
+audio: buffer,
+mimetype: "audio/mp4",
+ptt: true // true for voice note, false for audio file
+});
 
-[![Scan QR Code](https://img.shields.io/badge/Scan-QR%20Code-25D366?style=for-the-badge&logo=whatsapp)](https://pair.garfielx.qzz.io/)
+// Send document
+await message.send({
+document: buffer,
+fileName: "document.pdf",
+mimetype: "application/pdf"
+});
 
-### 2. Environment Variables
+// Send sticker
+await message.send({
+sticker: buffer
+});
 
-```bash
-SESSION_ID=session_id_here
-PREFIX=/
-LANG=en
-SUDO=×××××××××
-OWNER_NUMBER=××××××,××××××,×××××
-WORKTYPE=private/public
-THEME=Garfield
-```
+// Send location
+await message.send({
+location: {
+degreesLatitude: 37.7749,
+degreesLongitude: -122.4194
+}
+});
 
-### 3. Start Bot Using PM2
+// Send contact
+await message.send({
+contacts: {
+displayName: "John Doe",
+contacts: [{ vcard: "..." }]
+}
+}); 3. Reply to Messages
+// Reply to current message
+await message.reply("This is a reply!");
 
-**Start the bot:**
+// Reply with media
+await message.reply({
+image: buffer,
+caption: "Replying with image"
+});
 
-```bash
-pm2 start . --name garfield --attach --time
-```
+// Alternative method (same as reply)
+await message.sendReply("Reply text"); 4. React to Messages
+// React with emoji
+await message.react("❤️");
+await message.react("👍");
+await message.react("😂");
+await message.react("🔥");
 
-**Stop the bot:**
+// Remove reaction (empty string)
+await message.react(""); 5. Delete & Edit Messages
+// Delete the current message
+await message.delete();
 
-```bash
-pm2 stop garfield
-```
+// Delete another message
+await message.send({ delete: someMessageKey });
 
-## Configure
+// Edit your own message (only bot's messages)
+if (message.isFromMe) {
+await message.edit("Updated text");
+} 6. Download Media
+// Download media from current message
+if (message.type === "imageMessage" ||
+message.type === "videoMessage" ||
+message.type === "audioMessage") {
 
-| Variable       | Description          | Default    | Required |
-| -------------- | -------------------- | ---------- | -------- |
-| `SESSION_ID`   | Session ID           | -          | ✅       |
-| `PREFIX`       | cmd prefix           | `.`        | ❌       |
-| `SUDO`         | Admin nums           | -          | ❌       |
-| `OWNER_NUMBER` | Owner nums           | -          | ❌       |
-| `WORKTYPE`     | (`private`/`public`) | `private`  | ❌       |
-| `THEME`        | appearance theme     | `Garfield` | ❌       |
+const buffer = await message.download();
+// Use the buffer
+await message.send({ image: buffer, caption: "Here's your image!" });
+}
 
-## Available Themes
+// Download from quoted message
+if (message.quoted) {
+const quotedBuffer = await message.quoted.download();
+} 7. Send from URL
+// Send image from URL
+await message.sendFromUrl("https://example.com/image.jpg");
 
-- **Garfield** (Default)
-- **X Astral**
-- **WhatsApp Bot**
+// Send as sticker
+await message.sendFromUrl("https://example.com/image.jpg", {
+asSticker: true
+});
 
-> Change themes by setting the `THEME` environment variable
+// Send as document
+await message.sendFromUrl("https://example.com/file.pdf", {
+asDocument: true,
+fileName: "document.pdf",
+mimetype: "application/pdf"
+});
 
-## Deploy on
+// Send video from URL
+await message.sendFromUrl("https://example.com/video.mp4", {
+asVideo: true,
+caption: "Video from URL"
+});
 
-> Get koyeb api key
+// Send audio from URL
+await message.sendFromUrl("https://example.com/audio.mp3", {
+asAudio: true,
+ptt: true // voice note
+}); 8. Group Operations
+// First, load group info
+await message.loadGroupInfo();
 
-### Koyeb Deployment
+// Check if user is admin
+if (message.isAdmin) {
+console.log("User is admin!");
+}
 
-[![Deploy to Koyeb](https://www.koyeb.com/static/images/deploy/button.svg)](https://app.koyeb.com/deploy?name=garfield&type=git&repository=naxordeve%2Fwhatsapp-bot&branch=master&builder=dockerfile&instance_type=free&instances_min=0&autoscaling_sleep_idle_delay=3600&env%5BPREFIX%5D=.&env%5BSESSION_ID%5D=garfield%7E9fgeB7X8&env%5BSUDO%5D=%2B27686881509&env%5BTHEME%5D=Garfield&ports=3000%3Bhttp%3B%2F&hc_protocol%5B3000%5D=tcp&hc_grace_period%5B3000%5D=5&hc_interval%5B3000%5D=30&hc_restart_limit%5B3000%5D=3&hc_timeout%5B3000%5D=5&hc_path%5B3000%5D=%2F&hc_method%5B3000%5D=get)
+// Check if bot is admin
+if (message.isBotAdmin) {
+console.log("Bot is admin!");
+}
 
-### Replit
+// Get group info
+console.log(message.groupMetadata);
+console.log(message.groupParticipants);
+console.log(message.groupAdmins);
+console.log(message.groupOwner);
 
-1. Fork this repository to your Replit account
-2. Add environment variables in the Secrets tab
-3. Click the Run button to start your bot
+// Mute/Unmute group
+await message.muteGroup(); // Only admins can send
+await message.unmuteGroup(); // Everyone can send
 
-### Render
+// Lock/Unlock group
+await message.lockGroup(); // Only admins can edit group info
+await message.unlockGroup(); // Everyone can edit group info
 
-> Get render api key
+// Change group subject
+await message.setSubject("New Group Name");
 
-[![Render](./lib/deploy-render.svg)](https://render.com/deploy?repo=https://github.com/naxordeve/whatsapp-bot)
+// Change group description
+await message.setDescription("New group description");
 
-### Panel
+// Add participants
+await message.addParticipant("1234567890@s.whatsapp.net");
+await message.addParticipant(["user1@s.whatsapp.net", "user2@s.whatsapp.net"]);
 
-> Create server
+// Remove participants
+await message.removeParticipant("1234567890@s.whatsapp.net");
+await message.kickParticipant("1234567890@s.whatsapp.net"); // same as remove
 
-[![Panel](./lib/deploy-panel.svg)](https://control.katabump.com/)
+// Promote to admin
+await message.promoteParticipant("1234567890@s.whatsapp.net");
 
-## Monitoring
+// Demote from admin
+await message.demoteParticipant("1234567890@s.whatsapp.net");
 
-### UptimeBot
+// Get invite code
+const code = await message.inviteCode();
+console.log(`Group invite: https://chat.whatsapp.com/${code}`);
 
-Keep your bot online 24/7 with [UptimeRobot](https://uptimerobot.com)
+// Revoke invite link
+await message.revokeInvite();
 
-## Development
+// Leave group
+await message.leaveGroup();
 
-### Local Setup
+// Get join requests
+const requests = await message.getJoinRequests();
 
-```bash
-# Clone the repository
-git clone https://github.com/naxordeve/whatsapp-bot.git
+// Approve join request
+await message.approveJoinRequest("1234567890@s.whatsapp.net");
 
-# Install dependencies
-npm install
+// Reject join request
+await message.rejectJoinRequest("1234567890@s.whatsapp.net");
 
-# Set up environment variables
-cp .env.example .env
+// Get participants list
+const participants = message.getParticipants();
 
-# Start the bot
-npm start
-```
+// Get admins list
+const admins = message.getAdmins();
 
-### Plugins
+// Check if user is participant
+if (message.isParticipant("1234567890@s.whatsapp.net")) {
+console.log("User is in group");
+} 9. Quoted Messages
+// Check if message has quoted message
+if (message.quoted) {
+console.log(message.quoted.body); // Quoted text
+console.log(message.quoted.sender); // Who sent quoted message
+console.log(message.quoted.type); // Quoted message type
+console.log(message.quoted.fromMe); // If bot sent quoted message
 
-Create custom plugins in the `plugins/` directory. Check existing plugins for examples.
+// Download quoted media
+if (message.quoted.type === "imageMessage") {
+const buffer = await message.quoted.download();
+await message.send({ image: buffer, caption: "Your quoted image" });
+}
+} 10. Mentions
+// Get mentioned users
+console.log(message.mentions); // Array of JIDs
 
-[![Join our WhatsApp](https://img.shields.io/badge/💬%20Join%20WhatsApp-25D366?style=for-the-badge&logo=whatsapp&logoColor=white)](https://chat.whatsapp.com/KLd7DIw1OV56wj4BRw0oE9)
+// Send message with mentions
+await message.send({
+text: "Hello @1234567890 and @0987654321!",
+mentions: ["1234567890@s.whatsapp.net", "0987654321@s.whatsapp.net"]
+}); 11. Typing & Recording Indicators
+// Show typing indicator
+await message.startTyping();
+// ... do something
+await message.stopTyping();
 
-**Arigato**
+// Show recording indicator
+await message.startRecording();
+// ... do something
+await message.stopRecording();
 
----
+// Example with delay
+await message.startTyping();
+await new Promise(resolve => setTimeout(resolve, 2000)); // wait 2 seconds
+await message.send("Here's your response!"); 12. Read Status
+// Mark message as read
+await message.markAsRead(); 13. User Profile Operations
+// Get user's status
+const status = await message.fetchStatus(message.sender);
+console.log(status);
 
-<div align="center">
+// Get profile picture URL
+const ppUrl = await message.profilePictureUrl(message.sender);
+if (ppUrl) {
+await message.send({ image: { url: ppUrl } });
+}
 
-**Made with ❤️**
+// Set profile picture (for bot)
+const imageBuffer = await message.download();
+await message.setPp(null, imageBuffer); // null = bot's own profile
 
-[![GitHub stars](https://img.shields.io/github/stars/naxordeve/whatsapp-bot?style=social)](https://github.com/naxordeve/whatsapp-bot)
-[![GitHub forks](https://img.shields.io/github/forks/naxordeve/whatsapp-bot?style=social)](https://github.com/naxordeve/whatsapp-bot)
+// Remove profile picture
+await message.removePp();
 
-</div>
+// Block user
+await message.blockUser("1234567890@s.whatsapp.net");
 
-Message Object Properties
-message.raw // Original raw message object from Baileys
-message.conn // Connection object (Baileys socket)
-message.key // Message key object
-message.id // Message ID
-message.from // Chat JID (where message came from)
-message.fromMe // Boolean - true if message is from bot
-message.sender // Sender JID (who sent the message)
-message.isGroup // Boolean - true if message is from a group
-message.pushName // Sender's push name (display name)
-message.type // Message type (conversation, imageMessage, videoMessage, etc.)
-message.body // Extracted text content from message
-message.content // Raw message content
-message.quoted // Quoted/replied message object (or null)
-message.mentions // Array of mentioned JIDs
-Group Properties (after loadGroupInfo())
-message.groupMetadata // Full group metadata object
-message.groupParticipants // Array of all group participants
-message.groupAdmins // Array of admin JIDs
-message.groupOwner // Group owner JID
-message.joinApprovalMode // Boolean - join approval enabled
-message.memberAddMode // Boolean - member add mode
-message.announce // Boolean - group is muted (only admins can send)
-message.restrict // Boolean - restrict mode enabled
-message.isAdmin // Boolean - is sender an admin
-message.isBotAdmin // Boolean - is bot an admin
-Message Methods
-// Basic messaging
-message.send(payload, options) // Send message
-message.sendreply(payload, options) // Send reply to message
-message.react(emoji) // React to message
-message.sendFromUrl(url, opts) // Download and send from URL
-message.download() // Download message media
+// Unblock user
+await message.unblockUser("1234567890@s.whatsapp.net"); 14. Forward Messages
+// Forward message to another chat
+await message.forward("1234567890@s.whatsapp.net");
 
-// Group management
-message.loadGroupInfo() // Load group information
-message.muteGroup() // Mute group (only admins can send)
-message.unmuteGroup() // Unmute group
-message.setSubject(text) // Set group subject/name
-message.setDescription(text) // Set group description
-message.addParticipant(jid) // Add participant to group
-message.removeParticipant(jid) // Remove participant from group
-message.promoteParticipant(jid) // Promote to admin
-message.demoteParticipant(jid) // Demote from admin
-message.leaveGroup() // Bot leaves the group
-message.inviteCode() // Get group invite code
-message.revokeInvite() // Revoke group invite link
-message.getInviteInfo(code) // Get info about invite code
-message.joinViaInvite(code) // Join group via invite code
-message.getJoinRequests() // Get pending join requests
-message.updateJoinRequests(jids, action) // Approve/reject join requests
-message.setMemberAddMode(enable) // Enable/disable member add mode
-message.getParticipants() // Get all participants
-message.isParticipant(jid) // Check if JID is participant
+// Forward to multiple chats
+await message.forward("group1@g.us");
+await message.forward("group2@g.us");
 
-// User management
-message.fetchStatus(jid) // Get user status
-message.profilePictureUrl(jid) // Get profile picture URL
-message.blockUser(jid) // Block user
-message.unblockUser(jid) // Unblock user
-message.setPp(jid, buf) // Set profile picture
-Quoted Message Properties (if exists)
-message.quoted.type // Type of quoted message
-message.quoted.msg // Quoted message content
-message.quoted.body // Text body of quoted message
-message.quoted.fromMe // Boolean - is quoted message from bot
-message.quoted.participant // Who sent the quoted message
-message.quoted.id // Quoted message ID
-message.quoted.key // Quoted message key
-message.quoted.download() // Download quoted message media
-Connection Object Methods (message.conn)
-// Send messages
-message.conn.sendMessage(jid, content, options)
+// Copy and send (without forward label)
+await message.copyNSend("1234567890@s.whatsapp.net"); 15. Connection Object
+// Access baileys connection directly
+const conn = message.conn; // or message.client
 
-// Group operations
-message.conn.groupMetadata(jid)
-message.conn.groupCreate(subject, participants)
-message.conn.groupLeave(jid)
-message.conn.groupUpdateSubject(jid, subject)
-message.conn.groupUpdateDescription(jid, description)
-message.conn.groupParticipantsUpdate(jid, participants, action)
-message.conn.groupSettingUpdate(jid, setting)
-message.conn.groupInviteCode(jid)
-message.conn.groupRevokeInvite(jid)
-message.conn.groupAcceptInvite(code)
-message.conn.groupGetInviteInfo(code)
-message.conn.groupRequestParticipantsList(jid)
-message.conn.groupRequestParticipantsUpdate(jid, participants, action)
+// Use baileys methods
+await conn.sendMessage(message.from, { text: "Direct send" });
+await conn.updateProfileStatus("New status");
+Complete Example Plugin
+module.exports = {
+name: "demo",
+aliases: ["test"],
+description: "Demo all features",
+category: "utility",
+async execute(message, args) {
 
-// User operations
-message.conn.updateProfilePicture(jid, content)
-message.conn.removeProfilePicture(jid)
-message.conn.updateProfileStatus(status)
-message.conn.updateProfileName(name)
-message.conn.updateBlockStatus(jid, action)
-message.conn.fetchStatus(jid)
-message.conn.profilePictureUrl(jid, type)
-message.conn.onWhatsApp(jid)
-message.conn.fetchPrivacySettings(checkOnline)
+    // Load group info if in group
+    if (message.isGroup) {
+      await message.loadGroupInfo();
 
-// Presence
-message.conn.sendPresenceUpdate(type, jid)
-message.conn.presenceSubscribe(jid)
+      // Only allow admins
+      if (!message.isAdmin) {
+        return await message.reply("Only admins can use this!");
+      }
+    }
 
-// Other
-message.conn.readMessages(keys)
-message.conn.sendReceipt(jid, participant, messageIds, type)
-message.conn.getBusinessProfile(jid)
-message.conn.query(node)
-message.conn.chatModify(modification, jid)
-Message Key Object Properties
-message.key.remoteJid // Chat JID
-message.key.fromMe // Boolean - from bot
-message.key.id // Message ID
-message.key.participant // Participant JID (in groups)
-Usage Examples
-// Access properties
-console.log(message.sender); // "1234567890@s.whatsapp.net"
-console.log(message.body); // "!ping"
-console.log(message.isGroup); // true
-console.log(message.pushName); // "John Doe"
+    // Show typing
+    await message.startTyping();
+
+    // React to message
+    await message.react("✅");
+
+    // Send response
+    await message.send(`
+
+_Demo Command_
+
+👤 User: ${message.pushName}
+📱 Sender: ${message.sender}
+💬 Message: ${message.body}
+🏷️ Type: ${message.type}
+👥 Group: ${message.isGroup ? "Yes" : "No"}
+🤖 From Me: ${message.isFromMe ? "Yes" : "No"}
+`.trim());
+
+    // If has quoted message
+    if (message.quoted) {
+      await message.reply(`You quoted: ${message.quoted.body}`);
+    }
+
+    // If has media
+    if (message.type === "imageMessage") {
+      const buffer = await message.download();
+      await message.send({
+        image: buffer,
+        caption: "Got your image!"
+      });
+    }
+
+    // Stop typing
+    await message.stopTyping();
+
+}
+};
+Admin-Only Command Example
+module.exports = {
+name: "kick",
+description: "Kick user from group",
+category: "admin",
+async execute(message, args) {
+
+    // Check if group
+    if (!message.isGroup) {
+      return await message.reply("This command only works in groups!");
+    }
+
+    // Load group info
+    await message.loadGroupInfo();
+
+    // Check if bot is admin
+    if (!message.isBotAdmin) {
+      return await message.reply("I need admin privileges!");
+    }
+
+    // Check if user is admin
+    if (!message.isAdmin) {
+      return await message.reply("Only admins can kick members!");
+    }
+
+    // Get mentioned user or quoted user
+    let target = message.mentions[0] || message.quoted?.sender;
+
+    if (!target) {
+      return await message.reply("Mention or reply to a user to kick!");
+    }
+
+    // Don't kick admins
+    if (message.groupAdmins.includes(target)) {
+      return await message.reply("Cannot kick admins!");
+    }
+
+    // Kick user
+    await message.removeParticipant(target);
+    await message.send(`✅ User kicked successfully!`);
+
+}
+};
+This covers all the major functions! Let me know if you need more specific examples.

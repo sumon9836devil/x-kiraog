@@ -6,22 +6,24 @@ const theme = getTheme();
 
 // 🔹 Auto Status Seen
 Module({
-  command: "astatus",
+  command: "autostatus",
   package: "owner",
   description: "Toggle auto view WhatsApp status",
 })(async (message, match) => {
-  if (!message.isfromMe) return message.send(theme.isfromMe);
+  if (!message.isFromMe) return message.send(theme.isfromMe);
 
   const botNumber = message.conn.user.id.split(":")[0];
   const input = match?.trim().toLowerCase();
 
   if (input === "on" || input === "off") {
+    await message.react("⏳");
     const result = await personalDB(
       ["status_view"],
       { content: input === "on" ? "true" : "false" },
       "set",
       botNumber
     );
+    await message.react(result ? "✅" : "❌");
     return await message.send(
       result
         ? `✅ *Auto status view is now \`${input.toUpperCase()}\`*`
@@ -44,18 +46,20 @@ Module({
   package: "owner",
   description: "Toggle auto typing in chats",
 })(async (message, match) => {
-  if (!message.isfromMe) return message.send(theme.isfromMe);
+  if (!message.isFromMe) return message.send(theme.isfromMe);
 
   const botNumber = message.conn.user.id.split(":")[0];
   const input = match?.trim().toLowerCase();
 
   if (input === "on" || input === "off") {
+    await message.react("⏳");
     const result = await personalDB(
       ["autotyping"],
       { content: input === "on" ? "true" : "false" },
       "set",
       botNumber
     );
+    await message.react(result ? "✅" : "❌");
     return await message.send(
       result
         ? `✅ *Auto typing is now \`${input.toUpperCase()}\`*`
@@ -78,18 +82,20 @@ Module({
   package: "owner",
   description: "Toggle auto voice recording in chats",
 })(async (message, match) => {
-  if (!message.isfromMe) return message.send(theme.isfromMe);
+  if (!message.isFromMe) return message.send(theme.isfromMe);
 
   const botNumber = message.conn.user.id.split(":")[0];
   const input = match?.trim().toLowerCase();
 
   if (input === "on" || input === "off") {
+    await message.react("⏳");
     const result = await personalDB(
       ["autorecord"],
       { content: input === "on" ? "true" : "false" },
       "set",
       botNumber
     );
+    await message.react(result ? "✅" : "❌");
     return await message.send(
       result
         ? `✅ *Auto record is now \`${input.toUpperCase()}\`*`
@@ -112,18 +118,20 @@ Module({
   package: "owner",
   description: "Toggle auto react to messages",
 })(async (message, match) => {
-  if (!message.isfromMe) return message.send(theme.isfromMe);
+  if (!message.isFromMe) return message.send(theme.isfromMe);
 
   const botNumber = message.conn.user.id.split(":")[0];
   const input = match?.trim().toLowerCase();
 
   if (input === "on" || input === "off") {
+    await message.react("⏳");
     const result = await personalDB(
       ["autoreact"],
       { content: input === "on" ? "true" : "false" },
       "set",
       botNumber
     );
+    await message.react(result ? "✅" : "❌");
     return await message.send(
       result
         ? `✅ *AutoReact is now \`${input.toUpperCase()}\`*`
@@ -145,18 +153,20 @@ Module({
   package: "owner",
   description: "Block users who call the bot",
 })(async (message, match) => {
-  if (!message.isfromMe) return message.send(theme.isfromMe);
+  if (!message.isFromMe) return message.send(theme.isfromMe);
 
   const botNumber = message.conn.user.id.split(":")[0];
   const input = match?.trim().toLowerCase();
 
   if (input === "on" || input === "off") {
+    await message.react("⏳");
     const result = await personalDB(
       ["anticall"],
       { content: input === "on" ? "true" : "false" },
       "set",
       botNumber
     );
+    await message.react(result ? "✅" : "❌");
     return await message.send(
       result
         ? `✅ *AntiCall is now \`${input.toUpperCase()}\`*`
@@ -179,18 +189,20 @@ Module({
   package: "owner",
   description: "Toggle auto read messages",
 })(async (message, match) => {
-  if (!message.isfromMe) return message.send(theme.isfromMe);
+  if (!message.isFromMe) return message.send(theme.isfromMe);
 
   const botNumber = message.conn.user.id.split(":")[0];
   const input = match?.trim().toLowerCase();
 
   if (input === "on" || input === "off") {
+    await message.react("⏳");
     const result = await personalDB(
       ["autoread"],
       { content: input === "on" ? "true" : "false" },
       "set",
       botNumber
     );
+    await message.react(result ? "✅" : "❌");
     return await message.send(
       result
         ? `✅ *AutoRead is now \`${input.toUpperCase()}\`*`
@@ -213,18 +225,20 @@ Module({
   package: "owner",
   description: "Toggle auto save viewed statuses",
 })(async (message, match) => {
-  if (!message.isfromMe) return message.send(theme.isfromMe);
+  if (!message.isFromMe) return message.send(theme.isfromMe);
 
   const botNumber = message.conn.user.id.split(":")[0];
   const input = match?.trim().toLowerCase();
 
   if (input === "on" || input === "off") {
+    await message.react("⏳");
     const result = await personalDB(
       ["save_status"],
       { content: input === "on" ? "true" : "false" },
       "set",
       botNumber
     );
+    await message.react(result ? "✅" : "❌");
     return await message.send(
       result
         ? `✅ *AutoSave Status is now \`${input.toUpperCase()}\`*`

@@ -22,7 +22,7 @@ Module({
 })(async (message, match) => {
   await message.loadGroupInfo();
   if (!message.isGroup) return message.send(theme.isGroup);
-  if (!message.isAdmin && !message.fromMe) return message.send(theme.isAdmin);
+  if (!message.isAdmin && !message.isFromMe) return message.send(theme.isAdmin);
 
   const rawMatch = match?.trim();
   const lowerMatch = rawMatch?.toLowerCase();
@@ -50,6 +50,7 @@ Module({
 
   // ♻️ Reset to default
   if (lowerMatch === "reset") {
+    await message.react("⏳");
     await groupDB(
       ["word"],
       {
@@ -64,6 +65,7 @@ Module({
       },
       "set"
     );
+    await message.react("✅");
     return await message.send(
       "♻️ *Antiword settings have been reset to default!*"
     );
@@ -100,6 +102,7 @@ Module({
 
   // ✅ Turn on
   if (lowerMatch === "on") {
+    await message.react("⏳");
     await groupDB(
       ["word"],
       {
@@ -108,6 +111,7 @@ Module({
       },
       "set"
     );
+    await message.react("✅");
     return await message.send(
       `✅ Antiword activated with action *${current.action}*`
     );
@@ -115,6 +119,7 @@ Module({
 
   // ❌ Turn off
   if (lowerMatch === "off") {
+    await message.react("⏳");
     await groupDB(
       ["word"],
       {
@@ -123,6 +128,7 @@ Module({
       },
       "set"
     );
+    await message.react("✅");
     return await message.send(`❌ Antiword deactivated`);
   }
 
@@ -133,11 +139,13 @@ Module({
       .trim()
       .toLowerCase();
     if (!actions.includes(action)) {
+      await message.react("❌");
       return await message.send(
         "❗ Invalid action! Use: `warn`, `kick`, or `null`"
       );
     }
 
+    await message.react("⏳");
     await groupDB(
       ["word"],
       {
@@ -146,6 +154,7 @@ Module({
       },
       "set"
     );
+    await message.react("✅");
     return await message.send(`⚙️ Antiword action set to *${action}*`);
   }
 
@@ -153,11 +162,13 @@ Module({
   if (lowerMatch.startsWith("set_warn")) {
     const count = parseInt(rawMatch.replace(/set_warn/i, "").trim());
     if (isNaN(count) || count < 1 || count > 10) {
+      await message.react("❌");
       return await message.send(
         "❗ Please provide a valid number between 1 and 10"
       );
     }
 
+    await message.react("⏳");
     await groupDB(
       ["word"],
       {
@@ -166,6 +177,7 @@ Module({
       },
       "set"
     );
+    await message.react("✅");
     return await message.send(`🚨 Warning count set to *${count}*`);
   }
 
@@ -173,13 +185,16 @@ Module({
   if (lowerMatch.startsWith("add")) {
     const word = rawMatch.replace(/add/i, "").trim().toLowerCase();
     if (!word || word.includes(" ")) {
+      await message.react("❌");
       return await message.send("❗ Provide a valid single word to ban");
     }
 
     if (current.words.includes(word)) {
+      await message.react("❌");
       return await message.send("⚠️ Word already exists in the list");
     }
 
+    await message.react("⏳");
     current.words.push(word);
     await groupDB(
       ["word"],
@@ -189,6 +204,7 @@ Module({
       },
       "set"
     );
+    await message.react("✅");
     return await message.send(`✅ Word "*${word}*" added to banned list`);
   }
 
@@ -200,9 +216,11 @@ Module({
       .toLowerCase();
     const newWords = current.words.filter((w) => w !== word);
     if (newWords.length === current.words.length) {
+      await message.react("❌");
       return await message.send("⚠️ Word not found in the list");
     }
 
+    await message.react("⏳");
     await groupDB(
       ["word"],
       {
@@ -211,9 +229,11 @@ Module({
       },
       "set"
     );
+    await message.react("✅");
     return await message.send(`🗑️ Word "*${word}*" removed from banned list`);
   }
 
+  await message.react("❌");
   return await message.send("⚠️ Invalid usage. Type `antiword` to see help.");
 });
 
@@ -224,7 +244,7 @@ Module({
 })(async (message, match) => {
   await message.loadGroupInfo();
   if (!message.isGroup) return message.send(theme.isGroup);
-  if (!message.isAdmin && !message.fromMe) return message.send(theme.isAdmin);
+  if (!message.isAdmin && !message.isFromMe) return message.send(theme.isAdmin);
 
   const data = await groupDB(["link"], { jid: message.from }, "get");
   const current = data.link || {
@@ -238,7 +258,9 @@ Module({
   const rawMatch = match?.trim();
   const lowerMatch = rawMatch?.toLowerCase();
   const actions = ["null", "warn", "kick"];
+  
   if (lowerMatch === "reset") {
+    await message.react("⏳");
     await groupDB(
       ["link"],
       {
@@ -253,10 +275,12 @@ Module({
       },
       "set"
     );
+    await message.react("✅");
     return await message.send(
       "♻️ *Antilink settings have been reset to default!*"
     );
   }
+  
   if (!rawMatch) {
     return await message.sendreply(
       `* Antilink Settings*\n\n` +
@@ -280,7 +304,9 @@ Module({
         `• antilink reset`
     );
   }
+  
   if (lowerMatch === "on") {
+    await message.react("⏳");
     await groupDB(
       ["link"],
       {
@@ -289,11 +315,14 @@ Module({
       },
       "set"
     );
+    await message.react("✅");
     return await message.send(
       `✅ Antilink activated with action *${current.action}*`
     );
   }
+  
   if (lowerMatch === "off") {
+    await message.react("⏳");
     await groupDB(
       ["link"],
       {
@@ -302,19 +331,23 @@ Module({
       },
       "set"
     );
+    await message.react("✅");
     return await message.send(`❌ Antilink deactivated`);
   }
+  
   if (lowerMatch.startsWith("action")) {
     const action = rawMatch
       .replace(/action/i, "")
       .trim()
       .toLowerCase();
     if (!actions.includes(action)) {
+      await message.react("❌");
       return await message.send(
         "❗ Invalid action! Use: `warn`, `kick`, or `null`"
       );
     }
 
+    await message.react("⏳");
     await groupDB(
       ["link"],
       {
@@ -323,17 +356,20 @@ Module({
       },
       "set"
     );
+    await message.react("✅");
     return await message.send(`⚙️ Antilink action set to *${action}*`);
   }
 
   if (lowerMatch.startsWith("set_warn")) {
     const count = parseInt(rawMatch.replace(/set_warn/i, "").trim());
     if (isNaN(count) || count < 1 || count > 10) {
+      await message.react("❌");
       return await message.send(
         "❗ Please provide a valid number between 1 and 10"
       );
     }
 
+    await message.react("⏳");
     await groupDB(
       ["link"],
       {
@@ -342,19 +378,25 @@ Module({
       },
       "set"
     );
+    await message.react("✅");
     return await message.send(`🚨 Antilink warning count set to *${count}*`);
   }
+  
   if (lowerMatch.startsWith("not_del")) {
     const url = rawMatch.replace(/not_del/i, "").trim();
     if (!url.startsWith("http")) {
+      await message.react("❌");
       return await message.send(
         "❗ Please provide a valid URL (must start with http)"
       );
     }
     const list = current.not_del || [];
     if (list.some((link) => link.toLowerCase() === url.toLowerCase())) {
+      await message.react("❌");
       return await message.send("⚠️ URL is already in the ignore list");
     }
+    
+    await message.react("⏳");
     list.push(url);
     await groupDB(
       ["link"],
@@ -364,7 +406,10 @@ Module({
       },
       "set"
     );
+    await message.react("✅");
     return await message.send("✅ URL added to ignore list (case preserved)");
   }
+  
+  await message.react("❌");
   return await message.send("⚠️ Invalid usage. Type `antilink` to see help.");
 });
