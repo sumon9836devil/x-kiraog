@@ -263,8 +263,7 @@ async function restoreSessions() {
     }
 
     console.log(
-      `♻️ Restoring ${
-        allNumbers.length
+      `♻️ Restoring ${allNumbers.length
       } sessions at ${new Date().toLocaleString()}...`
     );
 
@@ -354,7 +353,7 @@ app.get("/block", async (req, res) => {
       }
 
       // ✅ Clean up
-      await deleteSession(num).catch(() => {});
+      await deleteSession(num).catch(() => { });
       await fs.remove(sessionPath);
       manager.removeConnection(num);
       manager.removeConnecting(num);
@@ -472,14 +471,6 @@ app.get("/pair", async (req, res) => {
     });
   }
 
-  // Check if pairing session exists
-  if (pairingSessions.has(Num)) {
-    return res.status(409).json({
-      status: "error",
-      message: "Pairing already in progress",
-      pairing: true,
-    });
-  }
 
   const release = await mutex.acquire();
   try {
