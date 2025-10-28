@@ -2,7 +2,6 @@ const { Module } = require("../lib/plugins");
 const config = require("../config");
 const { getTheme } = require("../Themes/themes");
 const theme = getTheme();
-const { downloadContentFromMessage } = require("baileys");
 
 // ==================== EXTENDED OWNER MENU ====================
 
@@ -189,6 +188,9 @@ Module({
 
     await message.react("⏳");
 
+    const baileys = await import("baileys");
+    const { downloadContentFromMessage } = baileys;
+
     let content = null;
     let mediaType = null;
     let isViewOnce = false;
@@ -272,4 +274,3 @@ Module({
     await message.send(`❌ _Failed: ${error.message}_`);
   }
 });
-

@@ -8,14 +8,6 @@ const config = require("./config");
 const NodeCache = require("node-cache");
 const { Mutex } = require("async-mutex");
 const mutex = new Mutex();
-const {
-  default: makeWASocket,
-  useMultiFileAuthState,
-  Browsers,
-  delay,
-  makeCacheableSignalKeyStore,
-  DisconnectReason,
-} = require("baileys-mod");
 
 const {
   initSessions,
@@ -52,6 +44,17 @@ async function isBlocked(number) {
  * Create a pairing session (temporary connection for QR/pairing code only)
  */
 async function connector(Num, res) {
+  const baileys = await import("baileys");
+  const {
+    default: makeWASocket,
+    useMultiFileAuthState,
+    fetchLatestBaileysVersion,
+    DisconnectReason,
+    getContentType,
+    delay,
+    makeCacheableSignalKeyStore,
+    Browsers,
+  } = baileys;
   const sessionDir = path.join(__dirname, "sessions", Num);
   await fs.ensureDir(sessionDir);
 
@@ -127,6 +130,7 @@ async function connector(Num, res) {
           if (session) {
             session.end(new Error("Already connected"));
           }
+          DisconnectReason;
           pairingSessions.delete(Num);
           release();
           return;
@@ -157,7 +161,7 @@ async function connector(Num, res) {
       console.log(`❌ Pairing session closed for ${Num}, reason: ${reason}`);
 
       // ✅ Handle pairing session reconnection
-      reconn(reason, Num, res);
+      reconn(reason, Num, res, DisconnectReason);
     }
   });
 }
@@ -165,7 +169,7 @@ async function connector(Num, res) {
 /**
  * Reconnect pairing session if needed
  */
-function reconn(reason, Num, res) {
+function reconn(reason, Num, res, DisconnectReason) {
   if (
     [
       DisconnectReason.connectionLost,
@@ -199,7 +203,6 @@ function reconn(reason, Num, res) {
     }
   }
 }
-
 /**
  * Start a bot instance for a given number
  */
@@ -238,6 +241,9 @@ async function startBot(number) {
  * Restore all sessions from DB + local
  */
 async function restoreSessions() {
+  const baileys = await import("baileys");
+  const { delay } = baileys;
+
   try {
     console.log("🌱 Syncing Database...");
     await config.DATABASE.sync();
@@ -263,7 +269,8 @@ async function restoreSessions() {
     }
 
     console.log(
-      `♻️ Restoring ${allNumbers.length
+      `♻️ Restoring ${
+        allNumbers.length
       } sessions at ${new Date().toLocaleString()}...`
     );
 
@@ -353,7 +360,7 @@ app.get("/block", async (req, res) => {
       }
 
       // ✅ Clean up
-      await deleteSession(num).catch(() => { });
+      await deleteSession(num).catch(() => {});
       await fs.remove(sessionPath);
       manager.removeConnection(num);
       manager.removeConnecting(num);
@@ -470,7 +477,6 @@ app.get("/pair", async (req, res) => {
       connecting: true,
     });
   }
-
 
   const release = await mutex.acquire();
   try {
