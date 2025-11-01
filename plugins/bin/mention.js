@@ -1,4 +1,4 @@
-const { MediaUrls } = require("./handler");
+const { MediaUrls } = require("../../lib/handier");
 
 async function mention(m, text) {
   try {
@@ -9,13 +9,16 @@ async function mention(m, text) {
       "type/sticker",
       "type/gif",
     ];
-    const jsonArray = text.match(/({.*})/g);
-    let msg = text.replace(jsonArray || [], "");
+
+    // Extract JSON (handle multiline)
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    const jsonArray = jsonMatch ? [jsonMatch[0]] : null;
+
+    let msg = jsonArray ? text.replace(jsonArray[0], "").trim() : text;
     let type = "text";
     let message = {
       contextInfo: {
         mentionedJid: [m.sender],
-        // IMPORTANT: Explicitly prevent forwarding markers
         isForwarded: false,
         forwardingScore: 0,
       },
@@ -33,14 +36,30 @@ async function mention(m, text) {
     if (jsonArray && jsonArray.length > 0) {
       try {
         const parsed = JSON.parse(jsonArray[0]);
-        // Merge but ensure no forward flags
-        message = { ...message, ...parsed };
 
-        // Remove any forward-related properties
+        // Deep merge contextInfo
+        if (parsed.contextInfo) {
+          message.contextInfo = {
+            ...message.contextInfo,
+            ...parsed.contextInfo,
+            mentionedJid: [m.sender], // Keep mention
+            isForwarded: false,
+            forwardingScore: 0,
+          };
+
+          // Preserve waveform for audio
+          if (parsed.waveform) {
+            message.waveform = parsed.waveform;
+          }
+        }
+
+        // Merge other properties
+        const { contextInfo, ...otherProps } = parsed;
+        message = { ...message, ...otherProps };
+
+        // Remove forward flags
         if (message.contextInfo) {
           delete message.contextInfo.forwardedNewsletterMessageInfo;
-          message.contextInfo.isForwarded = false;
-          message.contextInfo.forwardingScore = 0;
         }
       } catch (e) {
         console.error("Failed to parse JSON config:", e);
@@ -61,7 +80,7 @@ async function mention(m, text) {
       delete message.contextInfo.externalAdReply.thumbnail;
     }
 
-    // Get media URLs
+    // Get media URLs (extract from multiline text)
     let URLS = MediaUrls(msg);
 
     // Handle media messages
@@ -74,6 +93,12 @@ async function mention(m, text) {
 
       // Pick random URL if multiple
       let URL = URLS[Math.floor(Math.random() * URLS.length)];
+
+      // Replace &sender in caption
+      if (msg && msg.includes("&sender")) {
+        msg = msg.replace(/&sender/g, "@" + m.number);
+        message.contextInfo.mentionedJid = [m.sender];
+      }
 
       // Add caption if exists
       if (msg) {
@@ -100,8 +125,7 @@ async function mention(m, text) {
         case "sticker":
           message.sticker = { url: URL };
           message.mimetype = "image/webp";
-          delete message.caption; // Stickers don't support captions
-          delete message.contextInfo; // Stickers typically don't have context
+          delete message.caption;
           break;
 
         case "gif":
@@ -117,6 +141,7 @@ async function mention(m, text) {
       // Final check: remove any forward properties
       delete message.forward;
 
+      console.log("📤 Sending media:", type, "URL:", URL);
       return await m.client.sendMessage(m.jid, message);
     } else {
       // Handle text message
@@ -137,7 +162,7 @@ async function mention(m, text) {
     // Fallback to simple text message
     try {
       await m.client.sendMessage(m.jid, {
-        text: text.substring(0, 100),
+        text: "Hey! Bot mentioned but error occurred 😅",
         contextInfo: {
           mentionedJid: [m.sender],
           isForwarded: false,
