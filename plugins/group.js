@@ -6,37 +6,104 @@ const theme = getTheme();
 
 /**
  * Extract JID from message (mentions, quoted, or number)
+ * ✅ FIXED: Enhanced LID/PN support with better extraction
  */
 const extractJid = (message) => {
+  // Check quoted message first
   if (message.quoted?.participant) return message.quoted.participant;
+  if (message.quoted?.sender) return message.quoted.sender;
+
+  // Check mentions
   if (message.mentions?.[0]) return message.mentions[0];
-  const text = message.body.split(" ").slice(1).join(" ");
+
+  // Extract from text with improved number parsing
+  const text = message.body.split(" ").slice(1).join(" ").trim();
   const number = text.replace(/[^0-9]/g, "");
-  return number ? `${number}@s.whatsapp.net` : null;
+
+  if (number) {
+    // Add country code if missing
+    const normalized = number.startsWith("1") ? number : number;
+    return `${normalized}@s.whatsapp.net`;
+  }
+
+  return null;
 };
 
 /**
  * Check permissions for group commands
+ * ✅ FIXED: Enhanced permission checks with better error handling
  */
 const checkPermissions = async (message) => {
-  await message.loadGroupInfo();
+  try {
+    await message.loadGroupInfo();
 
-  if (!message.isGroup) {
-    await message.send(theme.isGroup);
+    if (!message.isGroup) {
+      await message.send(
+        theme.isGroup || "❌ _This command is only for groups_"
+      );
+      return false;
+    }
+
+    if (!message.isAdmin && !message.isFromMe) {
+      await message.send(
+        theme.isAdmin || "❌ _This command requires admin privileges_"
+      );
+      return false;
+    }
+
+    if (!message.isBotAdmin) {
+      await message.send(theme.isBotAdmin || "❌ _Bot needs admin privileges_");
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error("Permission check error:", error);
+    await message.send("❌ _Failed to check permissions_");
     return false;
   }
+};
 
-  if (!message.isAdmin && !message.isFromMe) {
-    await message.send(theme.isAdmin);
-    return false;
+/**
+ * ✅ FIXED: Safe JID comparison using message helper
+ */
+const areJidsSame = (message, jid1, jid2) => {
+  if (!jid1 || !jid2) return false;
+  if (message.areJidsSame) {
+    return message.areJidsSame(jid1, jid2);
+  }
+  // Fallback comparison
+  return jid1.split("@")[0] === jid2.split("@")[0];
+};
+
+/**
+ * ✅ NEW: Extract multiple JIDs (for batch operations)
+ */
+const extractMultipleJids = (message) => {
+  const jids = [];
+
+  // Add mentions
+  if (message.mentions?.length > 0) {
+    jids.push(...message.mentions);
   }
 
-  if (!message.isBotAdmin) {
-    await message.send(theme.isBotAdmin);
-    return false;
+  // Add quoted participant
+  if (message.quoted?.participant) {
+    jids.push(message.quoted.participant);
   }
 
-  return true;
+  // Extract numbers from text
+  const text = message.body.split(" ").slice(1).join(" ");
+  const numbers = text.match(/\d+/g) || [];
+
+  numbers.forEach((num) => {
+    if (num.length >= 10) {
+      jids.push(`${num}@s.whatsapp.net`);
+    }
+  });
+
+  // Remove duplicates
+  return [...new Set(jids)];
 };
 
 // ==================== MEMBER MANAGEMENT ====================
@@ -50,50 +117,54 @@ Module({
   try {
     if (!(await checkPermissions(message))) return;
 
-    const jid = extractJid(message);
-    if (!jid) {
+    const jids = extractMultipleJids(message);
+    if (jids.length === 0) {
       return message.send(
-        "❌ _Provide user number, tag, or reply_\n\n*Example:*\n• .add 1234567890\n• .add @user\n• Reply to a message"
+        "❌ _Provide user number, tag, or reply_\n\n*Examples:*\n• .add 1234567890\n• .add @user\n• .add 123456 234567 (multiple)\n• Reply to a message"
       );
     }
 
     await message.react("⏳");
-    const res = await message.addParticipant(jid);
-    const status = res?.[0]?.[jid]?.status || res?.[jid]?.status;
-    const number = jid.split("@")[0];
 
-    if (status === 200) {
-      await message.react("✅");
-      await message.send(
-        `✅ *Member Added*\n\n@${number} has been added to the group`,
-        {
-          mentions: [jid],
-        }
-      );
-    } else if (status === 403) {
-      await message.react("⚠️");
-      await message.send(
-        `⚠️ *Cannot Add*\n\n@${number} has privacy settings that prevent being added to groups`,
-        { mentions: [jid] }
-      );
-    } else if (status === 409) {
-      await message.react("ℹ️");
-      await message.send(`ℹ️ @${number} is already in this group`, {
-        mentions: [jid],
-      });
-    } else {
-      await message.react("❌");
-      await message.send(
-        `❌ Failed to add @${number}\n\n*Status Code:* ${status}`,
-        {
-          mentions: [jid],
-        }
-      );
+    const results = await message.addParticipant(jids);
+
+    let successCount = 0;
+    let failedCount = 0;
+    let alreadyInGroup = 0;
+    let privacyBlocked = 0;
+
+    const mentions = [];
+    let responseText = "📊 *Add Results*\n\n";
+
+    // Process results for each JID
+    for (const jid of jids) {
+      const status = results?.[jid]?.status || results?.[0]?.[jid]?.status;
+      const number = jid.split("@")[0];
+      mentions.push(jid);
+
+      if (status === 200 || status === "200") {
+        successCount++;
+        responseText += `✅ @${number} - Added successfully\n`;
+      } else if (status === 403 || status === "403") {
+        privacyBlocked++;
+        responseText += `⚠️ @${number} - Privacy settings block\n`;
+      } else if (status === 409 || status === "409") {
+        alreadyInGroup++;
+        responseText += `ℹ️ @${number} - Already in group\n`;
+      } else {
+        failedCount++;
+        responseText += `❌ @${number} - Failed (${status || "Unknown"})\n`;
+      }
     }
+
+    responseText += `\n*Summary:*\n• Success: ${successCount}\n• Failed: ${failedCount}\n• Already in: ${alreadyInGroup}\n• Privacy block: ${privacyBlocked}`;
+
+    await message.react(successCount > 0 ? "✅" : "❌");
+    await message.send(responseText, { mentions });
   } catch (error) {
     console.error("Add command error:", error);
     await message.react("❌");
-    await message.send("❌ _An error occurred while adding member_");
+    await message.send("❌ _An error occurred while adding member(s)_");
   }
 });
 
@@ -107,39 +178,65 @@ Module({
   try {
     if (!(await checkPermissions(message))) return;
 
-    const jid = extractJid(message);
-    if (!jid) {
-      return message.send("❌ _Tag or reply to a user to kick_");
+    const jids = extractMultipleJids(message);
+    if (jids.length === 0) {
+      return message.send("❌ _Tag or reply to user(s) to kick_");
     }
 
-    const botJid = message.conn.user.id.split(":")[0] + "@s.whatsapp.net";
+    const botJid = message.conn.user.id;
+    const validJids = [];
+    const mentions = [];
 
-    if (jid === botJid) {
-      return message.send("❌ _Cannot kick myself_");
+    for (const jid of jids) {
+      // Check if trying to kick bot
+      if (areJidsSame(message, jid, botJid)) {
+        await message.send("❌ _Cannot kick myself_");
+        continue;
+      }
+
+      // Check if trying to kick owner
+      if (areJidsSame(message, jid, message.groupOwner)) {
+        await message.send("❌ _Cannot kick the group owner_");
+        continue;
+      }
+
+      // Check if trying to kick admin
+      const isTargetAdmin = message.groupAdmins.some((adminId) =>
+        areJidsSame(message, adminId, jid)
+      );
+
+      if (isTargetAdmin && !message.isFromMe) {
+        await message.send(`❌ _Cannot kick admin @${jid.split("@")[0]}_`, {
+          mentions: [jid],
+        });
+        continue;
+      }
+
+      validJids.push(jid);
+      mentions.push(jid);
     }
 
-    if (jid === message.groupOwner) {
-      return message.send("❌ _Cannot kick the group owner_");
-    }
-
-    if (message.groupAdmins.includes(jid) && !message.isFromMe) {
-      return message.send("❌ _Cannot kick other admins_");
+    if (validJids.length === 0) {
+      return message.send("❌ _No valid users to kick_");
     }
 
     await message.react("⏳");
-    await message.removeParticipant(jid);
+    await message.removeParticipant(validJids);
     await message.react("✅");
 
+    const kickedList = validJids
+      .map((jid) => `@${jid.split("@")[0]}`)
+      .join(", ");
     await message.reply(
-      `✅ *Member Removed*\n\n@${
-        jid.split("@")[0]
-      } has been removed from the group`,
-      { mentions: [jid] }
+      `✅ *Members Removed*\n\n${kickedList} ${
+        validJids.length > 1 ? "have" : "has"
+      } been removed from the group`,
+      { mentions }
     );
   } catch (error) {
     console.error("Kick command error:", error);
     await message.react("❌");
-    await message.send("❌ _Failed to remove member_");
+    await message.send("❌ _Failed to remove member(s)_");
   }
 });
 
@@ -152,31 +249,64 @@ Module({
   try {
     if (!(await checkPermissions(message))) return;
 
-    const jid = extractJid(message);
-    if (!jid) {
-      return message.send("❌ _Tag or reply to a user to promote_");
+    const jids = extractMultipleJids(message);
+    if (jids.length === 0) {
+      return message.send("❌ _Tag or reply to user(s) to promote_");
     }
 
-    if (message.groupAdmins.includes(jid)) {
-      return message.send("ℹ️ _User is already an admin_");
+    const validJids = [];
+    const mentions = [];
+
+    for (const jid of jids) {
+      // Check if already admin
+      const isAlreadyAdmin = message.groupAdmins.some((adminId) =>
+        areJidsSame(message, adminId, jid)
+      );
+
+      if (isAlreadyAdmin) {
+        await message.send(`ℹ️ @${jid.split("@")[0]} is already an admin`, {
+          mentions: [jid],
+        });
+        continue;
+      }
+
+      // Check if user is in group
+      const isInGroup = message.groupParticipants.some((p) =>
+        areJidsSame(message, p.id, jid)
+      );
+
+      if (!isInGroup) {
+        await message.send(`❌ @${jid.split("@")[0]} is not in the group`, {
+          mentions: [jid],
+        });
+        continue;
+      }
+
+      validJids.push(jid);
+      mentions.push(jid);
     }
 
-    if (!message.isParticipant(jid)) {
-      return message.send("❌ _User is not in the group_");
+    if (validJids.length === 0) {
+      return message.send("❌ _No valid users to promote_");
     }
 
     await message.react("⏳");
-    await message.promoteParticipant(jid);
+    await message.promoteParticipant(validJids);
     await message.react("👑");
 
+    const promotedList = validJids
+      .map((jid) => `@${jid.split("@")[0]}`)
+      .join(", ");
     await message.reply(
-      `👑 *Promoted to Admin*\n\n@${jid.split("@")[0]} is now a group admin`,
-      { mentions: [jid] }
+      `👑 *Promoted to Admin*\n\n${promotedList} ${
+        validJids.length > 1 ? "are" : "is"
+      } now group admin${validJids.length > 1 ? "s" : ""}`,
+      { mentions }
     );
   } catch (error) {
     console.error("Promote command error:", error);
     await message.react("❌");
-    await message.send("❌ _Failed to promote member_");
+    await message.send("❌ _Failed to promote member(s)_");
   }
 });
 
@@ -189,31 +319,98 @@ Module({
   try {
     if (!(await checkPermissions(message))) return;
 
-    const jid = extractJid(message);
-    if (!jid) {
-      return message.send("❌ _Tag or reply to an admin to demote_");
+    const jids = extractMultipleJids(message);
+    if (jids.length === 0) {
+      return message.send("❌ _Tag or reply to admin(s) to demote_");
     }
 
-    if (jid === message.groupOwner) {
-      return message.send("❌ _Cannot demote the group owner_");
+    const validJids = [];
+    const mentions = [];
+
+    for (const jid of jids) {
+      // Check if owner
+      if (areJidsSame(message, jid, message.groupOwner)) {
+        await message.send("❌ _Cannot demote the group owner_");
+        continue;
+      }
+
+      // Check if admin
+      const isAdmin = message.groupAdmins.some((adminId) =>
+        areJidsSame(message, adminId, jid)
+      );
+
+      if (!isAdmin) {
+        await message.send(`ℹ️ @${jid.split("@")[0]} is not an admin`, {
+          mentions: [jid],
+        });
+        continue;
+      }
+
+      validJids.push(jid);
+      mentions.push(jid);
     }
 
-    if (!message.groupAdmins.includes(jid)) {
-      return message.send("ℹ️ _User is not an admin_");
+    if (validJids.length === 0) {
+      return message.send("❌ _No valid admins to demote_");
     }
 
     await message.react("⏳");
-    await message.demoteParticipant(jid);
+    await message.demoteParticipant(validJids);
     await message.react("✅");
 
+    const demotedList = validJids
+      .map((jid) => `@${jid.split("@")[0]}`)
+      .join(", ");
     await message.reply(
-      `✅ *Demoted to Member*\n\n@${jid.split("@")[0]} is no longer an admin`,
-      { mentions: [jid] }
+      `✅ *Demoted to Member*\n\n${demotedList} ${
+        validJids.length > 1 ? "are" : "is"
+      } no longer admin${validJids.length > 1 ? "s" : ""}`,
+      { mentions }
     );
   } catch (error) {
     console.error("Demote command error:", error);
     await message.react("❌");
-    await message.send("❌ _Failed to demote admin_");
+    await message.send("❌ _Failed to demote admin(s)_");
+  }
+});
+
+Module({
+  command: "admins",
+  package: "group",
+  aliases: ["adminlist"],
+  description: "List all group admins",
+})(async (message) => {
+  try {
+    await message.loadGroupInfo();
+
+    if (!message.isGroup) return message.send(theme.isGroup);
+
+    if (!message.groupAdmins || message.groupAdmins.length === 0) {
+      return message.send("ℹ️ _No admins found_");
+    }
+
+    let text = `╭━━━「 *GROUP ADMINS* 」━━━╮\n┃\n`;
+
+    // Owner first
+    if (message.groupOwner) {
+      text += `┃ 👑 @${message.groupOwner.split("@")[0]} (Owner)\n┃\n`;
+    }
+
+    // Other admins
+    let adminCount = 0;
+    message.groupAdmins.forEach((adminId) => {
+      if (!areJidsSame(message, adminId, message.groupOwner)) {
+        adminCount++;
+        text += `┃ ${adminCount}. @${adminId.split("@")[0]}\n`;
+      }
+    });
+
+    text += `┃\n╰━━━━━━━━━━━━━━━━━━╯\n\n*Total:* ${message.groupAdmins.length} admin(s)`;
+
+    await message.send(text, { mentions: message.groupAdmins });
+  } catch (error) {
+    console.error("Admins command error:", error);
+    await message.send("❌ _Failed to list admins_");
   }
 });
 
@@ -280,7 +477,7 @@ Module({
     if (!(await checkPermissions(message))) return;
 
     await message.react("⏳");
-    await message.lockGroup();
+    await message.conn.groupSettingUpdate(message.from, "locked");
     await message.react("🔒");
 
     await message.reply(
@@ -301,7 +498,7 @@ Module({
     if (!(await checkPermissions(message))) return;
 
     await message.react("⏳");
-    await message.unlockGroup();
+    await message.conn.groupSettingUpdate(message.from, "unlocked");
     await message.react("🔓");
 
     await message.reply(
@@ -318,7 +515,7 @@ Module({
 Module({
   command: "setgpp",
   package: "group",
-  aliases: ["seticon", "setimage"],
+  aliases: ["seticon", "setimage", "setgroupicon"],
   description: "Set group profile picture",
   usage: ".setgpp <reply to image>",
 })(async (message) => {
@@ -341,6 +538,10 @@ Module({
       message.type === "imageMessage"
         ? await message.download()
         : await message.quoted.download();
+
+    if (!buffer) {
+      return message.send("❌ _Failed to download image_");
+    }
 
     await message.setPp(message.from, buffer);
     await message.react("✅");
@@ -434,21 +635,24 @@ Module({
 
     if (!message.isGroup) return message.send(theme.isGroup);
 
-    const createdDate = new Date(message.groupMetadata.creation * 1000);
+    const meta = message.groupMetadata;
+    const createdDate = new Date((meta.creation || 0) * 1000);
     const regularMembers =
-      message.groupParticipants.length - message.groupAdmins.length;
+      (message.groupParticipants?.length || 0) -
+      (message.groupAdmins?.length || 0);
+    const ownerNumber = message.groupOwner?.split("@")[0] || "Unknown";
 
     const info = `╭━━━「 *GROUP INFO* 」━━━╮
 ┃
-┃ ✦ *Name:* ${message.groupMetadata.subject}
+┃ ✦ *Name:* ${meta.subject || "Unknown"}
 ┃ ✦ *ID:* ${message.from.split("@")[0]}
 ┃ ✦ *Created:* ${createdDate.toLocaleDateString()}
-┃ ✦ *Owner:* @${message.groupOwner.split("@")[0]}
+┃ ✦ *Owner:* @${ownerNumber}
 ┃
 ┃ ━━━━━━━━━━━━━━━━━━
 ┃
-┃ 👥 *Members:* ${message.groupParticipants.length}
-┃ 👑 *Admins:* ${message.groupAdmins.length}
+┃ 👥 *Members:* ${message.groupParticipants?.length || 0}
+┃ 👑 *Admins:* ${message.groupAdmins?.length || 0}
 ┃ 👤 *Regular:* ${regularMembers}
 ┃
 ┃ ━━━━━━━━━━━━━━━━━━
@@ -458,16 +662,18 @@ Module({
 ┃ • Edit Info: ${message.restrict ? "🔒 Admins Only" : "🔓 All Members"}
 ┃ • Join Approval: ${message.joinApprovalMode ? "✅ Enabled" : "❌ Disabled"}
 ┃${
-      message.groupMetadata.desc
-        ? `\n┃ ━━━━━━━━━━━━━━━━━━\n┃\n┃ 📝 *Description:*\n┃ ${message.groupMetadata.desc.substring(
+      meta.desc
+        ? `\n┃ ━━━━━━━━━━━━━━━━━━\n┃\n┃ 📝 *Description:*\n┃ ${meta.desc.substring(
             0,
             200
-          )}${message.groupMetadata.desc.length > 200 ? "..." : ""}\n┃`
+          )}${meta.desc.length > 200 ? "..." : ""}\n┃`
         : ""
     }
 ╰━━━━━━━━━━━━━━━━━━╯`;
 
-    await message.reply(info, { mentions: [message.groupOwner] });
+    await message.reply(info, {
+      mentions: message.groupOwner ? [message.groupOwner] : [],
+    });
   } catch (error) {
     console.error("Groupinfo command error:", error);
     await message.send("❌ _Failed to fetch group info_");
@@ -538,12 +744,13 @@ Module({
 
     for (let i = 0; i < requests.length; i++) {
       const req = requests[i];
-      text += `┃ ${i + 1}. @${req.jid.split("@")[0]}\n`;
+      const jid = req.jid || req;
+      text += `┃ ${i + 1}. @${jid.split("@")[0]}\n`;
     }
 
     text += `┃\n╰━━━━━━━━━━━━━━━━━━╯\n\n*Total:* ${requests.length} request(s)\n\n*Commands:*\n• .approve - Approve all\n• .reject - Reject all`;
 
-    const mentions = requests.map((r) => r.jid);
+    const mentions = requests.map((r) => r.jid || r);
     await message.reply(text, { mentions });
   } catch (error) {
     console.error("Requests command error:", error);
@@ -554,7 +761,7 @@ Module({
 Module({
   command: "approve",
   package: "group",
-  aliases: ["acceptall"],
+  aliases: ["acceptall", "approveall"],
   description: "Approve all pending join requests",
 })(async (message) => {
   try {
@@ -567,8 +774,8 @@ Module({
     }
 
     await message.react("⏳");
-    const jids = requests.map((r) => r.jid);
-    await message.approveJoinRequest(jids);
+    const jids = requests.map((r) => r.jid || r);
+    await message.updateJoinRequests(jids, "approve");
     await message.react("✅");
 
     await message.reply(
@@ -596,8 +803,8 @@ Module({
     }
 
     await message.react("⏳");
-    const jids = requests.map((r) => r.jid);
-    await message.rejectJoinRequest(jids);
+    const jids = requests.map((r) => r.jid || r);
+    await message.updateJoinRequests(jids, "reject");
     await message.react("✅");
 
     await message.reply(`✅ *Rejected ${requests.length} request(s)*`);
@@ -612,7 +819,7 @@ Module({
 Module({
   command: "leave",
   package: "group",
-  aliases: ["exit"],
+  aliases: ["exit", "left"],
   description: "Bot leaves the group",
 })(async (message) => {
   try {
@@ -638,63 +845,6 @@ Module({
   }
 });
 
-Module({
-  command: "exit",
-  package: "group",
-  aliases: ["exit"],
-  description: "Bot leaves the group",
-})(async (message) => {
-  try {
-    await message.loadGroupInfo();
-
-    if (!message.isGroup) return message.send(theme.isGroup);
-    if (!message.isFromMe) {
-      return message.send("❌ _Only bot owner can use this_");
-    }
-
-    await message.reply("👋 *Goodbye!*\n\nLeaving the group in 3 seconds...");
-
-    setTimeout(async () => {
-      try {
-        await message.leaveGroup();
-      } catch (err) {
-        console.error("Error leaving group:", err);
-      }
-    }, 3000);
-  } catch (error) {
-    console.error("Leave command error:", error);
-    await message.send("❌ _Failed to leave group_");
-  }
-});
-
-Module({
-  command: "left",
-  package: "group",
-  aliases: ["exit"],
-  description: "Bot leaves the group",
-})(async (message) => {
-  try {
-    await message.loadGroupInfo();
-
-    if (!message.isGroup) return message.send(theme.isGroup);
-    if (!message.isFromMe) {
-      return message.send("❌ _Only bot owner can use this_");
-    }
-
-    await message.reply("👋 *Goodbye!*\n\nLeaving the group in 3 seconds...");
-
-    setTimeout(async () => {
-      try {
-        await message.leaveGroup();
-      } catch (err) {
-        console.error("Error leaving group:", err);
-      }
-    }, 3000);
-  } catch (error) {
-    console.error("Leave command error:", error);
-    await message.send("❌ _Failed to leave group_");
-  }
-});
 // ==================== NEW FEATURES ====================
 
 Module({
@@ -817,7 +967,7 @@ Module({
           text: `📢 *GROUP ANNOUNCEMENT*\n\n*From:* ${groupName}\n*Message:*\n${match}`,
         });
         success++;
-        await new Promise((resolve) => setTimeout(resolve, 1000)); // Delay to avoid spam
+        await new Promise((resolve) => setTimeout(resolve, 1500)); // Delay to avoid spam
       } catch (err) {
         failed++;
       }
@@ -834,11 +984,11 @@ Module({
 });
 
 Module({
-  command: "invite",
+  command: "inviteuser",
   package: "group",
   aliases: ["inv"],
   description: "Invite user via private message",
-  usage: ".invite <number>",
+  usage: ".inviteuser <number>",
 })(async (message, match) => {
   try {
     await message.loadGroupInfo();
@@ -851,7 +1001,7 @@ Module({
     const jid = extractJid(message);
     if (!jid) {
       return message.send(
-        "❌ _Provide a number_\n\n*Example:* .invite 1234567890"
+        "❌ _Provide a number_\n\n*Example:* .inviteuser 1234567890"
       );
     }
 
@@ -874,7 +1024,7 @@ Module({
       { mentions: [jid] }
     );
   } catch (error) {
-    console.error("Invite command error:", error);
+    console.error("InviteUser command error:", error);
     await message.send("❌ _Failed to send invitation_");
   }
 });
@@ -909,6 +1059,56 @@ Module({
   } catch (error) {
     console.error("Everyone command error:", error);
     await message.send("❌ _Failed to tag everyone_");
+  }
+});
+
+Module({
+  command: "hidetag",
+  package: "group",
+  aliases: ["htag"],
+  description: "Tag all without showing numbers",
+  usage: ".hidetag <message>",
+})(async (message, match) => {
+  try {
+    await message.loadGroupInfo();
+
+    if (!message.isGroup) return message.send(theme.isGroup);
+    if (!message.isAdmin && !message.isFromMe)
+      return message.send(theme.isAdmin);
+
+    const text = match || message.quoted?.body || "📢 *Hidden Tag*";
+    const mentions = message.groupParticipants.map((p) => p.id);
+
+    await message.send(text, { mentions });
+  } catch (error) {
+    console.error("HideTag command error:", error);
+    await message.send("❌ _Failed to send hidden tag_");
+  }
+});
+
+Module({
+  command: "tagadmins",
+  package: "group",
+  aliases: ["admintag"],
+  description: "Tag all admins",
+  usage: ".tagadmins <message>",
+})(async (message, match) => {
+  try {
+    await message.loadGroupInfo();
+
+    if (!message.isGroup) return message.send(theme.isGroup);
+
+    const text = match || "👑 *ADMIN ATTENTION NEEDED*";
+    let tagText = `${text}\n\n`;
+
+    for (let i = 0; i < message.groupAdmins.length; i++) {
+      tagText += `@${message.groupAdmins[i].split("@")[0]} `;
+    }
+
+    await message.send(tagText, { mentions: message.groupAdmins });
+  } catch (error) {
+    console.error("TagAdmins command error:", error);
+    await message.send("❌ _Failed to tag admins_");
   }
 });
 
@@ -969,41 +1169,64 @@ Module({
 });
 
 Module({
-  command: "inactive",
+  command: "groupstats",
   package: "group",
-  description: "List potentially inactive members (no recent messages)",
+  aliases: ["gstats"],
+  description: "Get group statistics",
 })(async (message) => {
   try {
     await message.loadGroupInfo();
 
     if (!message.isGroup) return message.send(theme.isGroup);
-    if (!message.isAdmin && !message.isFromMe)
-      return message.send(theme.isAdmin);
 
-    // This is a placeholder - actual implementation would require tracking message history
-    await message.send(
-      "ℹ️ *Inactive Member Detection*\n\nThis feature requires message history tracking to be implemented.\n\n_Coming soon!_"
+    const totalMembers = message.groupParticipants.length;
+    const admins = message.groupAdmins.length;
+    const regular = totalMembers - admins;
+    const createdDate = new Date((message.groupMetadata.creation || 0) * 1000);
+    const daysSinceCreation = Math.floor(
+      (Date.now() - createdDate.getTime()) / (1000 * 60 * 60 * 24)
     );
+
+    const stats = `╭━━━「 *GROUP STATISTICS* 」━━━╮
+┃
+┃ 📊 *Member Distribution*
+┃ • Total Members: ${totalMembers}
+┃ • Admins: ${admins} (${((admins / totalMembers) * 100).toFixed(1)}%)
+┃ • Regular: ${regular} (${((regular / totalMembers) * 100).toFixed(1)}%)
+┃
+┃ 📅 *Timeline*
+┃ • Created: ${createdDate.toLocaleDateString()}
+┃ • Age: ${daysSinceCreation} days
+┃
+┃ ⚙️ *Settings Status*
+┃ • Messaging: ${message.announce ? "🔒 Restricted" : "🔓 Open"}
+┃ • Info Edit: ${message.restrict ? "🔒 Locked" : "🔓 Unlocked"}
+┃ • Join Mode: ${
+      message.joinApprovalMode ? "✅ Approval Required" : "🔓 Direct Join"
+    }
+┃
+╰━━━━━━━━━━━━━━━━━━╯`;
+
+    await message.reply(stats);
   } catch (error) {
-    console.error("Inactive command error:", error);
-    await message.send("❌ _Failed to check inactive members_");
+    console.error("GroupStats command error:", error);
+    await message.send("❌ _Failed to get group statistics_");
   }
 });
 
 Module({
-  command: "grouphelp",
-  package: "group",
-  aliases: ["ghelp", "groupcmd"],
+  command: "gmenu",
+  package: "general",
   description: "Show all group management commands",
 })(async (message) => {
   try {
     const help = `╭━━━「 *GROUP COMMANDS* 」━━━╮
 ┃
 ┃ *👥 MEMBER MANAGEMENT*
-┃ • .add - Add member
-┃ • .kick - Remove member
-┃ • .promote - Make admin
-┃ • .demote - Remove admin
+┃ • .add - Add member(s)
+┃ • .kick - Remove member(s)
+┃ • .promote - Make admin(s)
+┃ • .demote - Remove admin(s)
 ┃ • .admins - List admins
 ┃
 ┃ *⚙️ GROUP SETTINGS*
@@ -1022,12 +1245,11 @@ Module({
 ┃ *📊 INFORMATION*
 ┃ • .groupinfo - Group details
 ┃ • .groupstats - Statistics
-┃ • .warnings - Check warnings
-┃ • .groupwarnings - All warnings
 ┃
 ┃ *🔗 INVITE & LINKS*
 ┃ • .invite - Get invite link
 ┃ • .revoke - Reset link
+┃ • .inviteuser - Send invite DM
 ┃ • .requests - View join requests
 ┃ • .approve - Approve requests
 ┃ • .reject - Reject requests
@@ -1038,14 +1260,8 @@ Module({
 ┃ • .tagadmins - Tag admins only
 ┃ • .announce - DM announcement
 ┃ • .mention - Mention users
+┃ • .totag - Tag with reply
 ┃ • .poll - Create poll
-┃
-┃ *🛡️ MODERATION*
-┃ • .warn - Warn user
-┃ • .resetwarn - Clear warnings
-┃ • .antilink - Toggle antilink
-┃ • .welcome - Toggle welcome
-┃ • .goodbye - Toggle goodbye
 ┃
 ┃ *🤖 BOT*
 ┃ • .leave - Bot leaves group

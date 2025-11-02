@@ -17,7 +17,7 @@ const {
   deleteSession,
 } = require("./lib/database/index");
 const { WhatsApp } = require("./lib/index");
-const { initializeLang } = require("./lang/iLang");
+//const { initializeLang } = require("./lang/iLang");
 const manager = require("./lib/manager");
 
 const app = express();
@@ -57,7 +57,7 @@ async function connector(Num, res) {
   };
 
   try {
-    const baileys = await import("@whiskeysockets/baileys");
+    const baileys = await import("baileys");
     const {
       default: makeWASocket,
       useMultiFileAuthState,
@@ -221,7 +221,7 @@ async function startBot(number) {
  * Restore all sessions from DB + local
  */
 async function restoreSessions() {
-  const baileys = await import("@whiskeysockets/baileys");
+  const baileys = await import("baileys");
   const { delay } = baileys;
 
   try {

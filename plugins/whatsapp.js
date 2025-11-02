@@ -17,7 +17,8 @@ Module({
 
     let jid;
     if (message.quoted) {
-      jid = message.quoted.participant || message.quoted.sender;
+      // ✅ NEW: Handle both participant and participantAlt
+      jid = message.quoted.participant || message.quoted.participantAlt || message.quoted.sender;
     } else if (message.mentions?.[0]) {
       jid = message.mentions[0];
     } else if (match) {
@@ -59,7 +60,8 @@ Module({
 
     let jid;
     if (message.quoted) {
-      jid = message.quoted.participant || message.quoted.sender;
+      // ✅ NEW: Handle both participant and participantAlt
+      jid = message.quoted.participant || message.quoted.participantAlt || message.quoted.sender;
     } else if (message.mentions?.[0]) {
       jid = message.mentions[0];
     } else if (match) {
@@ -203,7 +205,9 @@ Module({
     }
 
     await message.react("⏳");
-    await message.setPp(null, buffer);
+    // ✅ NEW: Use bot's own JID
+    const botJid = message.conn.user.id;
+    await message.setPp(botJid, buffer);
     await message.react("✅");
 
     await message.send(
@@ -226,7 +230,11 @@ Module({
     if (!message.isFromMe) return message.send(theme.isFromMe);
 
     await message.react("⏳");
-    await message.removePp();
+    
+    // ✅ NEW: Properly remove profile picture
+    const botJid = message.conn.user.id;
+    await message.conn.removeProfilePicture(botJid);
+    
     await message.react("✅");
 
     await message.send(
@@ -328,6 +336,7 @@ Module({
   try {
     if (!message.isFromMe) return message.send(theme.isFromMe);
 
+    // ✅ NEW: Get bot JID properly (handles LID)
     const myJid = message.conn.user.id.split(":")[0] + "@s.whatsapp.net";
     const status = await message.fetchStatus(myJid).catch(() => null);
 
@@ -355,8 +364,10 @@ Module({
   try {
     if (!message.isFromMe) return message.send(theme.isFromMe);
 
+    // ✅ NEW: Handle both participant and participantAlt
     const jid =
       message.quoted?.participant ||
+      message.quoted?.participantAlt ||
       message.quoted?.sender ||
       message.mentions?.[0] ||
       message.sender;
@@ -392,8 +403,10 @@ Module({
   try {
     if (!message.isFromMe) return message.send(theme.isFromMe);
 
+    // ✅ NEW: Handle both participant and participantAlt
     const jid =
       message.quoted?.participant ||
+      message.quoted?.participantAlt ||
       message.quoted?.sender ||
       message.mentions?.[0];
 
@@ -404,7 +417,10 @@ Module({
     let groupName = null;
     if (message.isGroup) {
       await message.loadGroupInfo();
-      const participant = message.groupParticipants.find((p) => p.id === jid);
+      // ✅ NEW: Use 'id' instead of 'jid' for participants
+      const participant = message.groupParticipants.find((p) => 
+        message.areJidsSame ? message.areJidsSame(p.id, jid) : p.id === jid
+      );
       groupName = participant?.notify || participant?.name;
     }
 
@@ -503,7 +519,12 @@ Module({
     const jid = `${number}@s.whatsapp.net`;
 
     await message.react("⏳");
-    await message.forward(jid);
+    
+    // ✅ NEW: Properly forward message
+    await message.conn.sendMessage(jid, { 
+      forward: message.quoted.raw || message.quoted 
+    });
+    
     await message.react("✅");
 
     await message.send(`✅ *Message forwarded* to @${number}`, {
@@ -565,8 +586,6 @@ Module({
     );
   }
 });
-
-
 
 Module({
   command: "leaveall",
@@ -755,7 +774,8 @@ Module({
     }
 
     const q = message.quoted;
-    const sender = q.participant || q.sender;
+    // ✅ NEW: Handle both participant and participantAlt
+    const sender = q.participant || q.participantAlt || q.sender;
 
     const info = `╭━━━「 📋 *QUOTED INFO* 」━━━╮
 ┃
@@ -783,8 +803,10 @@ Module({
   try {
     if (!message.isFromMe) return message.send(theme.isFromMe);
 
+    // ✅ NEW: Handle both participant and participantAlt
     const jid =
       message.quoted?.participant ||
+      message.quoted?.participantAlt ||
       message.quoted?.sender ||
       message.mentions?.[0] ||
       message.from;
@@ -795,478 +817,3 @@ Module({
     await message.send("❌ _Failed to get JID_");
   }
 });
-
-Module({
-  command: "getdp",
-  package: "owner",
-  description: "Get display picture in high quality",
-  usage: ".getdp <reply|tag>",
-})(async (message) => {
-  try {
-    if (!message.isFromMe) return message.send(theme.isFromMe);
-
-    const jid =
-      message.quoted?.participant ||
-      message.quoted?.sender ||
-      message.mentions?.[0] ||
-      message.sender;
-
-    await message.react("⏳");
-    const url = await message.profilePictureUrl(jid, "image");
-
-    if (!url) {
-      await message.react("❌");
-      return message.send("❌ _User has no profile picture_");
-    }
-
-    await message.sendFromUrl(url, {
-      caption: `📸 *High Quality Profile Picture*\n\n@${jid.split("@")[0]}`,
-      mentions: [jid],
-    });
-
-    await message.react("✅");
-  } catch (error) {
-    console.error("GetDP command error:", error);
-    await message.react("❌");
-    await message.send("❌ _Failed to fetch display picture_");
-  }
-});
-
-// ==================== STICKER UTILITIES ====================
-
-
-
-Module({
-  command: "toimage",
-  package: "owner",
-  aliases: ["toimg"],
-  description: "Convert sticker to image",
-  usage: ".toimage <reply to sticker>",
-})(async (message) => {
-  try {
-    if (!message.isFromMe) return message.send(theme.isFromMe);
-
-    const isSticker =
-      message.type === "stickerMessage" ||
-      message.quoted?.type === "stickerMessage";
-
-    if (!isSticker) {
-      return message.send("❌ _Reply to a sticker_");
-    }
-
-    await message.react("⏳");
-
-    const buffer =
-      message.type === "stickerMessage"
-        ? await message.download()
-        : await message.quoted.download();
-
-    await message.send({
-      image: buffer,
-      caption: "✅ _Converted to image_",
-    });
-
-    await message.react("✅");
-  } catch (error) {
-    console.error("ToImage command error:", error);
-    await message.react("❌");
-    await message.send("❌ _Failed to convert sticker_");
-  }
-});
-
-Module({
-  command: "steal",
-  package: "owner",
-  aliases: ["take"],
-  description: "Steal sticker with custom pack info",
-  usage: ".steal <reply to sticker> | .steal PackName | Author",
-})(async (message, match) => {
-  try {
-    if (!message.isFromMe) return message.send(theme.isFromMe);
-
-    const isSticker =
-      message.type === "stickerMessage" ||
-      message.quoted?.type === "stickerMessage";
-
-    if (!isSticker) {
-      return message.send("❌ _Reply to a sticker_");
-    }
-
-    await message.react("⏳");
-
-    const buffer =
-      message.type === "stickerMessage"
-        ? await message.download()
-        : await message.quoted.download();
-
-    const [packname, author] = match
-      ? match.split("|").map((s) => s.trim())
-      : [config.STICKER_PACKNAME || "Bot", config.STICKER_AUTHOR || "User"];
-
-    await message.send({
-      sticker: buffer,
-      packname: packname,
-      author: author || "",
-    });
-
-    await message.react("✅");
-  } catch (error) {
-    console.error("Steal command error:", error);
-    await message.react("❌");
-    await message.send("❌ _Failed to steal sticker_");
-  }
-});
-
-Module({
-  command: "eval",
-  package: "owner",
-  description: "Execute JavaScript code",
-  usage: ".eval <code>",
-})(async (message, match) => {
-  try {
-    if (!message.isFromMe) return message.send(theme.isFromMe);
-
-    if (!match) {
-      return message.send(
-        "❌ _Provide code to execute_\n\n*Example:* .eval 2 + 2"
-      );
-    }
-
-    await message.react("⏳");
-
-    try {
-      let result = await eval(`(async () => { ${match} })()`);
-
-      if (typeof result === "object") {
-        result = JSON.stringify(result, null, 2);
-      }
-
-      await message.send(
-        `╭━━━「 *EVAL RESULT* 」━━━╮\n┃\n┃ \`\`\`${result}\`\`\`\n┃\n╰━━━━━━━━━━━━━━━━━━╯`
-      );
-      await message.react("✅");
-    } catch (err) {
-      await message.send(`❌ *Error*\n\n\`\`\`${err.message}\`\`\``);
-      await message.react("❌");
-    }
-  } catch (error) {
-    console.error("Eval command error:", error);
-    await message.send("❌ _Failed to execute code_");
-  }
-});
-
-Module({
-  command: "exec",
-  package: "owner",
-  aliases: ["shell", "$"],
-  description: "Execute shell command",
-  usage: ".exec <command>",
-})(async (message, match) => {
-  try {
-    if (!message.isFromMe) return message.send(theme.isFromMe);
-
-    if (!match) {
-      return message.send(
-        "❌ _Provide command to execute_\n\n*Example:* .exec ls -la"
-      );
-    }
-
-    await message.react("⏳");
-
-    const { exec } = require("child_process");
-
-    exec(match, async (error, stdout, stderr) => {
-      if (error) {
-        await message.send(`❌ *Error*\n\n\`\`\`${error.message}\`\`\``);
-        await message.react("❌");
-        return;
-      }
-
-      const output = stdout || stderr || "_No output_";
-      const truncated =
-        output.length > 4000 ? output.substring(0, 4000) + "..." : output;
-
-      await message.send(
-        `╭━━━「 *EXEC OUTPUT* 」━━━╮\n┃\n\`\`\`${truncated}\`\`\`\n┃\n╰━━━━━━━━━━━━━━━━━━╯`
-      );
-      await message.react("✅");
-    });
-  } catch (error) {
-    console.error("Exec command error:", error);
-    await message.send("❌ _Failed to execute command_");
-  }
-});
-
-// ==================== INFORMATION COMMANDS ====================
-
-Module({
-  command: "listpc",
-  package: "owner",
-  description: "List all personal chats",
-})(async (message) => {
-  try {
-    if (!message.isFromMe) return message.send(theme.isFromMe);
-
-    const allChats = await message.conn.store.chats.all();
-    const privateChats = allChats.filter((c) =>
-      c.id.endsWith("@s.whatsapp.net")
-    );
-
-    if (privateChats.length === 0) {
-      return message.send("ℹ️ _No private chats found_");
-    }
-
-    let text = `╭━━━「 *PRIVATE CHATS* 」━━━╮\n┃\n`;
-
-    const showCount = Math.min(privateChats.length, 50);
-    for (let i = 0; i < showCount; i++) {
-      const chat = privateChats[i];
-      text += `┃ ${i + 1}. ${chat.name || chat.id.split("@")[0]}\n`;
-    }
-
-    text += `┃\n╰━━━━━━━━━━━━━━━━━━╯\n\n*Total:* ${privateChats.length} chat(s)`;
-
-    if (privateChats.length > 50) {
-      text += `\n\n_Showing first 50 of ${privateChats.length} chats_`;
-    }
-
-    await message.send(text);
-  } catch (error) {
-    console.error("ListPC command error:", error);
-    await message.send("❌ _Failed to list chats_");
-  }
-});
-
-Module({
-  command: "clearall",
-  package: "owner",
-  description: "Clear all chats",
-})(async (message) => {
-  try {
-    if (!message.isFromMe) return message.send(theme.isFromMe);
-
-    await message.react("⏳");
-
-    const allChats = await message.conn.store.chats.all();
-    let cleared = 0;
-
-    for (const chat of allChats) {
-      try {
-        await message.conn.chatModify(
-          { delete: true, lastMessages: [] },
-          chat.id
-        );
-        cleared++;
-      } catch {
-        // Continue on error
-      }
-    }
-
-    await message.react("✅");
-    await message.send(`✅ *Cleared ${cleared} chat(s)*`);
-  } catch (error) {
-    console.error("ClearAll command error:", error);
-    await message.react("❌");
-    await message.send("❌ _Failed to clear chats_");
-  }
-});
-
-Module({
-  command: "setvar",
-  package: "owner",
-  description: "Set environment variable",
-  usage: ".setvar KEY=VALUE",
-})(async (message, match) => {
-  try {
-    if (!message.isFromMe) return message.send(theme.isFromMe);
-
-    if (!match || !match.includes("=")) {
-      return message.send("❌ _Invalid format_\n\n*Example:* .setvar PREFIX=.");
-    }
-
-    const [key, ...valueParts] = match.split("=");
-    const value = valueParts.join("=").trim();
-
-    if (!key || !value) {
-      return message.send("❌ _Both key and value are required_");
-    }
-
-    process.env[key.trim()] = value;
-    config[key.trim()] = value; // Update config object if exists
-
-    await message.send(
-      `✅ *Variable Set*\n\n*Key:* ${key.trim()}\n*Value:* ${value}`
-    );
-  } catch (error) {
-    console.error("SetVar command error:", error);
-    await message.send("❌ _Failed to set variable_");
-  }
-});
-
-// ==================== HELP COMMAND ====================
-
-Module({
-  command: "ownerhelp",
-  package: "owner",
-  aliases: ["ohelp", "ownercmd"],
-  description: "Show all owner commands",
-})(async (message) => {
-  try {
-    const help = `╭━━━「 *OWNER COMMANDS* 」━━━╮
-┃
-┃ *🚫 USER MANAGEMENT*
-┃ • .block - Block user
-┃ • .unblock - Unblock user
-┃ • .blocklist - View blocked users
-┃ • .unblockall - Unblock all users
-┃
-┃ *👤 PROFILE*
-┃ • .setpp - Set profile picture
-┃ • .removepp - Remove profile pic
-┃ • .setname - Set bot name
-┃ • .myname - Get bot name
-┃ • .setbio - Set status/bio
-┃ • .mystatus - Get bot bio
-┃ • .getbio - Get user bio
-┃ • .getname - Get username
-┃
-┃ *📢 BROADCAST*
-┃ • .broadcast - Send to all groups
-┃ • .forward - Forward message
-┃
-┃ *👥 GROUP*
-┃ • .join - Join via invite
-┃ • .leave - Leave group
-┃ • .leaveall - Leave all groups
-┃ • .listgc - List all groups
-┃
-┃ *💾 UTILITIES*
-┃ • .save - Save message
-┃ • .delete - Delete message
-┃ • .quoted - Quoted info
-┃ • .jid - Get JID
-┃ • .vcard - Generate vcard
-┃ • .photo - Get profile pic
-┃ • .getdp - Get HD profile pic
-┃
-┃ *🎨 STICKER*
-┃ • .sticker - Create sticker
-┃ • .toimage - Convert to image
-┃ • .steal - Steal sticker
-┃
-┃ *⚙️ SYSTEM*
-┃ • .restart - Restart bot
-┃ • .shutdown - Stop bot
-┃ • .ping - Check latency
-┃ • .runtime - Check uptime
-┃ • .eval - Execute JS code
-┃ • .exec - Execute shell cmd
-┃ • .setvar - Set variable
-┃ • .getvar - Get variable
-┃ • .install - Install package
-┃ • .update - Update bot
-┃ • .clearall - Clear all chats
-┃ • .listpc - List private chats
-┃
-╰━━━━━━━━━━━━━━━━━━╯
-
-_Use .command for usage details_`;
-
-    await message.send(help);
-  } catch (error) {
-    console.error("OwnerHelp command error:", error);
-    await message.send("❌ _Failed to show help_");
-  }
-});
-
-Module({
-  command: "photo",
-  package: "owner",
-  aliases: ["pp", "dp"],
-  description: "Get profile picture",
-  usage: ".photo <reply|tag>",
-})(async (message) => {
-  try {
-    if (!message.isFromMe) return message.send(theme.isFromMe);
-
-    const jid =
-      message.quoted?.participant ||
-      message.quoted?.sender ||
-      message.mentions?.[0] ||
-      message.sender;
-
-    await message.react("⏳");
-    const url = await message.profilePictureUrl(jid, "image");
-
-    if (!url) {
-      await message.react("❌");
-      return message.send("❌ _User has no profile picture_");
-    }
-
-    await message.send({
-      image: { url },
-      caption: `📸 *Profile Picture*\n\n@${jid.split("@")[0]}`,
-      mentions: [jid],
-    });
-
-    await message.react("✅");
-  } catch (error) {
-    console.error("Photo command error:", error);
-    await message.react("❌");
-    await message.send("❌ _Failed to fetch profile picture_");
-  }
-});
-
-Module({
-  command: "vcard",
-  package: "owner",
-  description: "Get contact vcard",
-  usage: ".vcard <reply|tag>",
-})(async (message) => {
-  try {
-    if (!message.isFromMe) return message.send(theme.isFromMe);
-
-    const jid =
-      message.quoted?.participant ||
-      message.quoted?.sender ||
-      message.mentions?.[0];
-
-    if (!jid) {
-      return message.send("❌ _Tag or reply to a user_");
-    }
-
-    const name = message.pushName || "User";
-    const vcard = `BEGIN:VCARD\nVERSION:3.0\nFN:${name}\nTEL;type=CELL;type=VOICE;waid=${
-      jid.split("@")[0]
-    }:+${jid.split("@")[0]}\nEND:VCARD`;
-
-    await message.send({
-      contacts: {
-        displayName: name,
-        contacts: [{ vcard }],
-      },
-    });
-
-    await message.react("✅");
-  } catch (error) {
-    console.error("VCard command error:", error);
-    await message.send("❌ _Failed to generate vcard_");
-  }
-});
-
-// ==================== HELPER FUNCTIONS ====================
-
-function formatUptime(seconds) {
-  const days = Math.floor(seconds / 86400);
-  const hours = Math.floor((seconds % 86400) / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  const secs = Math.floor(seconds % 60);
-
-  let result = [];
-  if (days > 0) result.push(`${days}d`);
-  if (hours > 0) result.push(`${hours}h`);
-  if (minutes > 0) result.push(`${minutes}m`);
-  if (secs > 0) result.push(`${secs}s`);
-
-  return result.join(" ") || "0s";
-}
