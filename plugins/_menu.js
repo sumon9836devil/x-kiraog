@@ -2,6 +2,7 @@ const os = require("os");
 const { Module, commands } = require("../lib/plugins");
 const { getTheme } = require("../Themes/themes");
 const theme = getTheme();
+const settings = require("../lib/database/settingdb");
 const { getRandomPhoto } = require("./bin/menu_img");
 const config = require("../config");
 const TextStyles = require("../lib/textfonts");
@@ -27,7 +28,7 @@ Module({
   const time = new Date().toLocaleTimeString("en-ZA", {
     timeZone: "Africa/Johannesburg",
   });
-  const mode = config.WORK_TYPE || process.env.WORK_TYPE;
+
   const userName = message.pushName || "User";
   const usedGB = ((os.totalmem() - os.freemem()) / 1073741824).toFixed(2);
   const totGB = (os.totalmem() / 1073741824).toFixed(2);
@@ -40,6 +41,16 @@ Module({
       acc[cmd.package].push(cmd.command);
       return acc;
     }, {});
+
+  const workType =
+    settings.getGlobal("WORK_TYPE") ??
+    config.WORK_TYPE ??
+    "public";
+
+  const prefix =
+    settings.getGlobal("prefix") ??
+    config.prefix ??
+    ".";
 
   const categories = Object.keys(grouped).sort();
   let _cmd_st = "";
@@ -59,8 +70,8 @@ Module({
     _cmd_st += `
 *╭══〘〘 ${name} 〙〙*
 *┃❍ ʀᴜɴ     :* ${runtime(process.uptime())}
-*┃❍ ᴍᴏᴅᴇ    :* Public
-*┃❍ ᴘʀᴇғɪx  :* ${config.prefix}
+*┃❍ ᴍᴏᴅᴇ    :* ${workType}
+*┃❍ ᴘʀᴇғɪx  :* ${prefix}
 *┃❍ ʀᴀᴍ     :* ${ram}
 *┃❍ ᴛɪᴍᴇ    :* ${time}
 *┃❍ ᴜsᴇʀ    :* ${userName}
@@ -95,7 +106,12 @@ ${readMore}
   const serverMessageId = 6;
 
   const opts = {
-    image: { url: getRandomPhoto() || "https://files.catbox.moe/n9ectm.jpg" },
+    image: {
+      url:
+        settings.getGlobal("MENU_URL") ||
+        config.MENU_URL ||
+        getRandomPhoto(),
+    },
     caption: _cmd_st,
     mimetype: "image/jpeg",
     contextInfo: {
@@ -112,16 +128,51 @@ ${readMore}
   await message.conn.sendMessage(message.from, opts);
 });
 
+
 Module({
   command: "list",
   package: "general",
-  description: "List all available commands",
+  description: "Show all available commands (with package, description and optional usage)",
 })(async (message) => {
-  const aca = commands
-    .filter((cmd) => cmd.command && cmd.command !== "undefined")
-    .map((cmd) => cmd.command)
-    .join("\n");
-  await message.send(`*List:*\n${aca}`);
+  try {
+    // build header
+    let out = [];
+    out.push("*📜 Command list*");
+    out.push("");
+    // Group commands by package for nicer output
+    const grouped = commands
+      .filter((c) => c.command) // only real commands
+      .reduce((acc, c) => {
+        const pkg = (c.package || "other").toLowerCase();
+        acc[pkg] = acc[pkg] || [];
+        acc[pkg].push(c);
+        return acc;
+      }, {});
+
+    const pkgs = Object.keys(grouped).sort();
+    for (const pkg of pkgs) {
+      out.push(`*┏━ ${pkg.toUpperCase()} ━*`);
+      // Sort commands alphabetically
+      grouped[pkg]
+        .sort((a, b) => (a.command || "").localeCompare(b.command || ""))
+        .forEach((c) => {
+          const name = c.command || "(unknown)";
+          const desc = c.description ? `${c.description}` : "No description";
+          const usage = c.usage ? `\n  _Usage:_ \`${c.usage}\`` : "";
+          out.push(`• *${name}* — ${desc}${usage}`);
+        });
+      out.push(`*┗━━━━━━━━━━━━━━━━━*`);
+      out.push("");
+    }
+
+    // join and send
+    const text = out.join("\n");
+    // If the text is too long you may want to send it as a file — but first try sending as message
+    await message.send(text);
+  } catch (err) {
+    console.error("Error in list plugin:", err);
+    await message.send("❌ Failed to fetch command list.");
+  }
 });
 
 Module({
@@ -147,8 +198,22 @@ Module({
 *Uptime:* ${hours}h ${minutes}m ${seconds}s
 `;
 
+  // 🔹 resolve image source (FAST)
+  const imageUrl =
+    settings.getGlobal("MENU_URL") ||
+    config.MENU_URL ||
+    getRandomPhoto();
+
+  // 🔹 send message
+  await message.send({
+    image: { url: imageUrl },
+    caption: ctx,
+  });
+
   await message.send({
     image: { url: getRandomPhoto() },
     caption: ctx,
   });
 });
+
+

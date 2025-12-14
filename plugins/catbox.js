@@ -152,19 +152,12 @@ Module({
       // Send success message
       const resultMessage = `
 ╭━━━「 *UPLOAD SUCCESS* 」━━━┈⊷
-┃
-┃ ✅ *${mediaType} uploaded successfully*
-┃
-┃ *📊 Details:*
+┃ *${mediaType} uploaded successfully*
 ┃ • Type: ${mediaType}
 ┃ • Size: ${fileSize}
 ┃ • Format: ${extension.replace(".", "").toUpperCase()}
-┃
 ┃ *🔗 URL:*
 ┃ ${mediaUrl}
-┃
-┃ _Link is permanent and can be shared_
-┃
 ╰━━━━━━━━━━━━━━━━━━━┈⊷
       `.trim();
 

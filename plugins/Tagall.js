@@ -76,7 +76,7 @@ Module({
     const getEmoji = () => emojis[Math.floor(Math.random() * emojis.length)];
     let tagText = `*▢ GROUP : ${groupName}*\n*▢ MEMBERS : ${totalMembers}*\n*▢ MESSAGE : ${msgText}*\n\n*╭┈─「 ɦเ αℓℓ ƒɾเεɳ∂ร 🥰 」┈❍*\n`;
     for (const p of participants) {
-      tagText += `*│${getEmoji()} ᩧ𝆺ྀི𝅥* @${p.id.split("@")[0]} \n`;
+      tagText += `*│${getEmoji()} @${p.id.split("@")[0]} \n`;
     }
     tagText += "*╰────────────❍*";
     const mentions = participants.map((p) => p.id);

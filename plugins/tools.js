@@ -1,5 +1,5 @@
 const { Module } = require("../lib/plugins");
-const { personalDB } = require("../lib/database");
+const db = require("../lib/database/settingdb");
 const config = require("../config");
 const { getTheme } = require("../Themes/themes");
 const theme = getTheme();
@@ -64,41 +64,6 @@ Module({
   );
 });
 
-// 🔹 Auto Recording
-Module({
-  command: "autorecord",
-  package: "owner",
-  description: "Toggle auto voice recording in chats",
-})(async (message, match) => {
-  if (!message.isFromMe) return message.send(theme.isfromMe);
-
-  const botNumber = message.conn.user.id.split(":")[0];
-  const input = match?.trim().toLowerCase();
-
-  if (input === "on" || input === "off") {
-    await message.react("⏳");
-    const result = await personalDB(
-      ["autorecord"],
-      { content: input === "on" ? "true" : "false" },
-      "set",
-      botNumber
-    );
-    await message.react(result ? "✅" : "❌");
-    return await message.send(
-      result
-        ? `✅ *Auto record is now \`${input.toUpperCase()}\`*`
-        : "❌ *Error updating auto record*"
-    );
-  }
-
-  const data = await personalDB(["autorecord"], {}, "get", botNumber);
-  const status = data?.autorecord === "true";
-  return await message.send(
-    `🎤 *Auto Record*\n> Status: ${
-      status ? "✅ ON" : "❌ OFF"
-    }\n\nUse:\n• autorecord on\n• autorecord off`
-  );
-});
 
 // 🔹 Auto React to Messages
 Module({
@@ -137,17 +102,13 @@ Module({
   description: "Block users who call the bot",
 })(async (message, match) => {
   if (!message.isFromMe) return message.send(theme.isfromMe);
-
-  const botNumber = message.conn.user.id.split(":")[0];
   const input = match?.trim().toLowerCase();
 
   if (input === "on" || input === "off") {
     await message.react("⏳");
-    const result = await personalDB(
-      ["anticall"],
-      { content: input === "on" ? "true" : "false" },
-      "set",
-      botNumber
+    const result = await db.setGlobal(
+      "anticall",
+      input === "on" ? "true" : "false"
     );
     await message.react(result ? "✅" : "❌");
     return await message.send(
@@ -157,8 +118,7 @@ Module({
     );
   }
 
-  const data = await personalDB(["anticall"], {}, "get", botNumber);
-  const status = data?.anticall === "true";
+  const status = (await db.getGlobal("anticall")) === "true";
   return await message.send(
     `⚙️ *AntiCall*\n> Status: ${
       status ? "✅ ON" : "❌ OFF"
@@ -193,41 +153,5 @@ Module({
     `⚙️ *Auto Read*\n> Status: ${
       autoread ? "✅ ON" : "❌ OFF"
     }\n\nUse:\n• autoread on\n• autoread off`
-  );
-});
-
-// 🔹 Save Status
-Module({
-  command: "savestatus",
-  package: "owner",
-  description: "Toggle auto save viewed statuses",
-})(async (message, match) => {
-  if (!message.isFromMe) return message.send(theme.isfromMe);
-
-  const botNumber = message.conn.user.id.split(":")[0];
-  const input = match?.trim().toLowerCase();
-
-  if (input === "on" || input === "off") {
-    await message.react("⏳");
-    const result = await personalDB(
-      ["save_status"],
-      { content: input === "on" ? "true" : "false" },
-      "set",
-      botNumber
-    );
-    await message.react(result ? "✅" : "❌");
-    return await message.send(
-      result
-        ? `✅ *AutoSave Status is now \`${input.toUpperCase()}\`*`
-        : "❌ *Error updating AutoSave Status*"
-    );
-  }
-
-  const data = await personalDB(["save_status"], {}, "get", botNumber);
-  const status = data?.save_status === "true";
-  return await message.send(
-    `⚙️ *AutoSave Status*\n> Status: ${
-      status ? "✅ ON" : "❌ OFF"
-    }\n\nUse:\n• savestatus on\n• savestatus off`
   );
 });

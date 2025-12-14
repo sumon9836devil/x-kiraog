@@ -4,7 +4,7 @@ const config = require("./config.js");
 const app = express();
 const PORT = process.env.PORT || 8000;
 const { initDatabases } = require("./lib/database/index.js");
-const db = require('./lib/database/settingsdb');
+const db = require('./lib/database/settingdb');
 app.use(express.json());
 
 // ==================== ROUTES ====================
@@ -19,7 +19,7 @@ app.get("/", (req, res) => {
 app.listen(PORT, async () => {
   try {
   console.log("Initializing databases...");
-   await db.init({ file: path.join(__dirname, 'data', 'settings_db.json'), autosaveInterval: 3000 });
+   await db.init();
   console.log('DB initialized. startup:', db.getStartupTime());
   await initDatabases();
   console.log(`databases initialized. Server is running on port ${PORT}`);

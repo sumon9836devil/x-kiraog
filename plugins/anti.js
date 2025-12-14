@@ -1,415 +1,311 @@
-const { groupDB } = require("../lib/database");
+
 const { Module } = require("../lib/plugins");
+const settings = require("../lib/database/settingdb"); // adjust path if needed
+const warnlib = require("../lib/warn"); // must implement addWarn/removeWarn/setWarnLimit
 const { getTheme } = require("../Themes/themes");
 const theme = getTheme();
-const defaultWords = [
-  "sex",
-  "porn",
-  "xxx",
-  "xvideo",
-  "cum4k",
-  "randi",
-  "chuda",
-  "fuck",
-  "nude",
-  "bobs",
-  "vagina",
-];
+
+// fast detection patterns (compiled once)
+const URL_REGEX = /((?:https?:\/\/|www\.)[^\s]+)/gi;
+const DOMAIN_REGEX = /\b([A-Za-z0-9\-]+\.[A-Za-z]{2,}(?:\/[^\s]*)?)\b/gi;
+
+// default config
+function defaultConfig() {
+    return {
+        status: true,
+        action: "kick", // kick | warn | null
+        not_del: []
+    };
+}
+
+function toBool(v) {
+    if (v === true || v === 1) return true;
+    if (v === false || v === 0) return false;
+    if (typeof v === "string") return ["true", "1", "yes", "on"].includes(v.toLowerCase());
+    return Boolean(v);
+}
+
+function normalizeCfg(raw) {
+    if (!raw || typeof raw !== "object") return defaultConfig();
+    const cfg = { ...defaultConfig(), ...raw };
+    cfg.not_del = Array.isArray(cfg.not_del) ? cfg.not_del : [];
+    cfg.action = (cfg.action || "kick").toLowerCase();
+    return cfg;
+}
+
+function isIgnored(link, notDelList = []) {
+    if (!link) return false;
+    const l = link.toLowerCase();
+    for (const p of notDelList || []) {
+        if (!p) continue;
+        const q = p.toLowerCase().trim();
+        if (!q) continue;
+        if (l.includes(q)) return true;
+    }
+    return false;
+}
+
+function detectLinks(text) {
+    if (!text) return [];
+    const found = new Set();
+
+    let m;
+    while ((m = URL_REGEX.exec(text))) {
+        if (m[1]) found.add(m[1]);
+    }
+    // domain-like fallback
+    while ((m = DOMAIN_REGEX.exec(text))) {
+        const candidate = m[1];
+        if (!candidate) continue;
+        if (candidate.includes("@")) continue; // skip emails
+        // avoid duplicates
+        let dup = false;
+        for (const s of found) if (s.includes(candidate) || candidate.includes(s)) { dup = true; break; }
+        if (!dup) found.add(candidate);
+    }
+
+    return Array.from(found);
+}
+
+// Core enforcement: delete first, then act
+async function enforceMessage(message) {
+    try {
+        if (!message || !message.isGroup) return { acted: false };
+
+        // quick short-circuit: if no dot / no www/http then probably no link
+        const body = (message.body || "").toString();
+        if (!body || (body.indexOf('.') === -1 && body.indexOf('http') === -1 && body.indexOf('www') === -1)) {
+            return { acted: false };
+        }
+
+        const links = detectLinks(body);
+        if (!links.length) return { acted: false };
+
+        // load cfg
+        let cfg = await settings.getGroup(message.from, "link");
+        cfg = normalizeCfg(cfg);
+
+        if (!toBool(cfg.status)) return { acted: false };
+
+        // ensure group info available for admin checks
+        if (typeof message.isAdmin === "undefined" || typeof message.isBotAdmin === "undefined") {
+            try { await message.loadGroupInfo(); } catch (e) { }
+        }
+
+        // ignore admins and bot self
+        if (message.isAdmin || message.isFromMe || message.isBotAdmin) return { acted: false };
+
+        // pick first offending link not in ignore list
+        let offenderUrl = null;
+        for (const l of links) {
+            if (!isIgnored(l, cfg.not_del)) { offenderUrl = l; break; }
+        }
+        if (!offenderUrl) return { acted: false };
+
+        const offender = message.sender;
+        const client = message.client || message.conn;
+
+        // 1) Try delete message for everyone if possible (best effort)
+        try {
+            if (client && message.key && message.isBotAdmin) {
+                await client.sendMessage(message.from, { delete: message.key }).catch(() => { });
+            } else if (client && message.key) {
+                // still try (may fail silently)
+                await client.sendMessage(message.from, { delete: message.key }).catch(() => { });
+            }
+        } catch (e) {
+            // ignore deletion errors
+        }
+
+        const action = (cfg.action || "kick").toLowerCase();
+
+        // NULL => only delete (we already attempted delete)
+        if (action === "null") {
+            return { acted: true, action: "null", offender, url: offenderUrl };
+        }
+
+        // WARN => add warn via warnlib
+        if (action === "warn") {
+            const res = await warnlib.addWarn(message.from, offender, {
+                reason: "antilink",
+                by: message.sender || "system"
+            });
+
+            try {
+                await message.send(
+                    `⚠️ *Anti-Link Warning*\n\nUser: @${offender.split("@")[0]}\nWarn: ${res.count}/${res.limit}`,
+                    { mentions: [offender] }
+                );
+            } catch (e) { }
+
+            if (res.reached) {
+                // kick & clear warns
+                try {
+                    if (client) {
+                        await client.groupParticipantsUpdate(message.from, [offender], "remove");
+                    }
+                } catch (e) {
+                    console.error("antilink: failed to kick after warn limit:", e);
+                }
+                await warnlib.removeWarn(message.from, offender).catch(() => { });
+                try {
+                    await message.send(`🚫 @${offender.split("@")[0]} removed — warn limit reached.`, { mentions: [offender] });
+                } catch (e) { }
+                return { acted: true, action: "warn-kick", offender, url: offenderUrl };
+            }
+
+            return { acted: true, action: "warn", offender, url: offenderUrl, warnInfo: res };
+        }
+
+        // KICK => immediate removal
+        if (action === "kick") {
+            try {
+                if (client) {
+                    // optional notify
+                    try {
+                        await message.send(`❌ *Anti-Link Detected*\nUser removed: @${offender.split("@")[0]}`, { mentions: [offender] }).catch(() => { });
+                    } catch (e) { }
+                    await client.groupParticipantsUpdate(message.from, [offender], "remove");
+                }
+            } catch (err) {
+                console.error("antilink kick error:", err);
+                return { acted: false, error: err };
+            }
+            await warnlib.removeWarn(message.from, offender).catch(() => { });
+            return { acted: true, action: "kick", offender, url: offenderUrl };
+        }
+
+        return { acted: false };
+    } catch (err) {
+        console.error("antilink.enforceMessage error:", err);
+        return { acted: false, error: err };
+    }
+}
+
+// =================== Command handler ===================
 Module({
-  command: "antiword",
-  package: "group",
-  description: "Manage antiword settings",
+    command: "antilink",
+    package: "group",
+    description: "Manage anti-link settings",
 })(async (message, match) => {
-  await message.loadGroupInfo();
-  if (!message.isGroup) return message.send(theme.isGroup);
-  if (!message.isAdmin && !message.isFromMe) return message.send(theme.isAdmin);
+    await message.loadGroupInfo();
+    if (!message.isGroup) return message.send(theme.isGroup);
+    if (!message.isAdmin && !message.isFromMe) return message.send(theme.isAdmin);
 
-  const rawMatch = match?.trim();
-  const lowerMatch = rawMatch?.toLowerCase();
-  const actions = ["null", "warn", "kick"];
+    const raw = (match || "").trim();
+    const lower = raw.toLowerCase();
 
-  let data = await groupDB(["word"], { jid: message.from }, "get");
-  let current = data.word || {
-    status: "false",
-    action: "null",
-    words: [],
-    warns: {},
-    warn_count: 3,
-  };
+    let cfg = await settings.getGroup(message.from, "link");
+    cfg = normalizeCfg(cfg);
 
-  // 💡 Fix: Ensure `words` is always an array
-  if (!Array.isArray(current.words)) current.words = [];
-
-  // 📝 Command: list
-  if (lowerMatch === "list") {
-    const list = current.words.length > 0 ? current.words : defaultWords;
-    return await message.send(
-      `📃 *Banned Word List:*\n${list.map((w) => `• ${w}`).join("\n")}`
-    );
-  }
-
-  // ♻️ Reset to default
-  if (lowerMatch === "reset") {
-    await message.react("⏳");
-    await groupDB(
-      ["word"],
-      {
-        jid: message.from,
-        content: {
-          status: "false",
-          action: "null",
-          words: [],
-          warns: {},
-          warn_count: 3,
-        },
-      },
-      "set"
-    );
-    await message.react("✅");
-    return await message.send(
-      "♻️ *Antiword settings have been reset to default!*"
-    );
-  }
-
-  // 🛠️ Settings overview
-  if (!rawMatch) {
-    return await message.sendreply(
-      `*🔞 Antiword Settings*\n\n` +
-        `• *Status:* ${current.status === "true" ? "✅ ON" : "❌ OFF"}\n` +
-        `• *Action:* ${
-          current.action === "null"
-            ? "🚫 Null"
-            : current.action === "warn"
-            ? "⚠️ Warn"
-            : "❌ Kick"
-        }\n` +
-        `• *Warn Before Kick:* ${current.warn_count}\n` +
-        `• *Banned Words:* ${
-          current.words?.length > 0
-            ? current.words.join(", ")
-            : defaultWords.join(", ")
-        }\n\n` +
-        `*Commands:*\n` +
-        `• antiword on/off\n` +
-        `• antiword action warn/kick/null\n` +
-        `• antiword set_warn <number>\n` +
-        `• antiword add <word>\n` +
-        `• antiword remove <word>\n` +
-        `• antiword list\n` +
-        `• antiword reset`
-    );
-  }
-
-  // ✅ Turn on
-  if (lowerMatch === "on") {
-    await message.react("⏳");
-    await groupDB(
-      ["word"],
-      {
-        jid: message.from,
-        content: { ...current, status: "true" },
-      },
-      "set"
-    );
-    await message.react("✅");
-    return await message.send(
-      `✅ Antiword activated with action *${current.action}*`
-    );
-  }
-
-  // ❌ Turn off
-  if (lowerMatch === "off") {
-    await message.react("⏳");
-    await groupDB(
-      ["word"],
-      {
-        jid: message.from,
-        content: { ...current, status: "false" },
-      },
-      "set"
-    );
-    await message.react("✅");
-    return await message.send(`❌ Antiword deactivated`);
-  }
-
-  // ⚙️ Set action
-  if (lowerMatch.startsWith("action")) {
-    const action = rawMatch
-      .replace(/action/i, "")
-      .trim()
-      .toLowerCase();
-    if (!actions.includes(action)) {
-      await message.react("❌");
-      return await message.send(
-        "❗ Invalid action! Use: `warn`, `kick`, or `null`"
-      );
+    if (!raw) {
+        return await message.sendreply(
+            `*Antilink Settings*\n\n` +
+            `• Status: ${toBool(cfg.status) ? "✅ ON" : "❌ OFF"}\n` +
+            `• Action: ${cfg.action}\n` +
+            `• Ignore (not_del): ${cfg.not_del.length ? cfg.not_del.join(", ") : "None"}\n\n` +
+            `Commands:\n` +
+            `• antilink on|off\n` +
+            `• antilink action kick|warn|null\n` +
+            `• antilink set_warn <number>\n` +
+            `• antilink not_del add <url|domain>\n` +
+            `• antilink not_del remove <url|domain>\n` +
+            `• antilink not_del list\n` +
+            `• antilink reset`
+        );
     }
 
-    await message.react("⏳");
-    await groupDB(
-      ["word"],
-      {
-        jid: message.from,
-        content: { ...current, action },
-      },
-      "set"
-    );
-    await message.react("✅");
-    return await message.send(`⚙️ Antiword action set to *${action}*`);
-  }
-
-  // 🚨 Set warn count
-  if (lowerMatch.startsWith("set_warn")) {
-    const count = parseInt(rawMatch.replace(/set_warn/i, "").trim());
-    if (isNaN(count) || count < 1 || count > 10) {
-      await message.react("❌");
-      return await message.send(
-        "❗ Please provide a valid number between 1 and 10"
-      );
+    // on / off
+    if (lower === "on" || lower === "off") {
+        cfg.status = lower === "on";
+        await settings.setGroupPlugin(message.from, "link", cfg);
+        await message.react("✅");
+        return await message.send(cfg.status ? "✅ Antilink enabled" : "❌ Antilink disabled");
     }
 
-    await message.react("⏳");
-    await groupDB(
-      ["word"],
-      {
-        jid: message.from,
-        content: { ...current, warn_count: count },
-      },
-      "set"
-    );
-    await message.react("✅");
-    return await message.send(`🚨 Warning count set to *${count}*`);
-  }
-
-  // ➕ Add word
-  if (lowerMatch.startsWith("add")) {
-    const word = rawMatch.replace(/add/i, "").trim().toLowerCase();
-    if (!word || word.includes(" ")) {
-      await message.react("❌");
-      return await message.send("❗ Provide a valid single word to ban");
+    // action
+    if (lower.startsWith("action")) {
+        const val = raw.replace(/action/i, "").trim().toLowerCase();
+        if (!["kick", "warn", "null"].includes(val)) {
+            await message.react("❌");
+            return await message.send("Invalid action. Use: kick | warn | null");
+        }
+        cfg.action = val;
+        await settings.setGroupPlugin(message.from, "link", cfg);
+        await message.react("✅");
+        return await message.send(`⚙️ Antilink action set to *${val}*`);
     }
 
-    if (current.words.includes(word)) {
-      await message.react("❌");
-      return await message.send("⚠️ Word already exists in the list");
+    // set_warn => change group-level warn limit
+    if (lower.startsWith("set_warn")) {
+        const num = parseInt(raw.replace(/set_warn/i, "").trim());
+        if (isNaN(num) || num < 1 || num > 50) {
+            await message.react("❌");
+            return await message.send("Provide a valid number between 1 and 50");
+        }
+        await warnlib.setWarnLimit(message.from, num);
+        await message.react("✅");
+        return await message.send(`✅ Warn limit set to ${num}`);
     }
 
-    await message.react("⏳");
-    current.words.push(word);
-    await groupDB(
-      ["word"],
-      {
-        jid: message.from,
-        content: { ...current },
-      },
-      "set"
-    );
-    await message.react("✅");
-    return await message.send(`✅ Word "*${word}*" added to banned list`);
-  }
-
-  // ➖ Remove word
-  if (lowerMatch.startsWith("remove")) {
-    const word = rawMatch
-      .replace(/remove/i, "")
-      .trim()
-      .toLowerCase();
-    const newWords = current.words.filter((w) => w !== word);
-    if (newWords.length === current.words.length) {
-      await message.react("❌");
-      return await message.send("⚠️ Word not found in the list");
+    // not_del subcommands
+    if (lower.startsWith("not_del")) {
+        const tail = raw.replace(/not_del/i, "").trim();
+        if (!tail) {
+            await message.react("❌");
+            return await message.send("Usage: not_del add <url> | not_del remove <url> | not_del list");
+        }
+        const [sub, ...rest] = tail.split(/\s+/);
+        const payload = rest.join(" ").trim();
+        if (sub === "add") {
+            if (!payload) {
+                await message.react("❌");
+                return await message.send("Provide a URL or domain to add");
+            }
+            if (!payload.includes(".") && !/^https?:\/\//i.test(payload) && !/^www\./i.test(payload)) {
+                await message.react("❌");
+                return await message.send("Please provide a valid URL or domain (e.g. example.com or https://example.com)");
+            }
+            if (!cfg.not_del.includes(payload)) cfg.not_del.push(payload);
+            await settings.setGroupPlugin(message.from, "link", cfg);
+            await message.react("✅");
+            return await message.send("✅ URL/domain added to ignore list");
+        } else if (sub === "remove") {
+            if (!payload) {
+                await message.react("❌");
+                return await message.send("Provide a URL or domain to remove");
+            }
+            cfg.not_del = (cfg.not_del || []).filter(x => x.toLowerCase() !== payload.toLowerCase());
+            await settings.setGroupPlugin(message.from, "link", cfg);
+            await message.react("✅");
+            return await message.send("✅ URL/domain removed from ignore list");
+        } else if (sub === "list") {
+            await message.react("✅");
+            return await message.send(`Ignored patterns:\n${cfg.not_del.length ? cfg.not_del.join("\n") : "None"}`);
+        } else {
+            await message.react("❌");
+            return await message.send("Invalid not_del subcommand. Use add/remove/list");
+        }
     }
 
-    await message.react("⏳");
-    await groupDB(
-      ["word"],
-      {
-        jid: message.from,
-        content: { ...current, words: newWords },
-      },
-      "set"
-    );
-    await message.react("✅");
-    return await message.send(`🗑️ Word "*${word}*" removed from banned list`);
-  }
+    // reset
+    if (lower === "reset") {
+        cfg = defaultConfig();
+        await settings.setGroupPlugin(message.from, "link", cfg);
+        await message.react("✅");
+        return await message.send("♻️ Antilink settings reset to defaults (enabled, action: kick)");
+    }
 
-  await message.react("❌");
-  return await message.send("⚠️ Invalid usage. Type `antiword` to see help.");
+    // fallback
+    await message.react("❌");
+    return await message.send("Invalid command. Type `antilink` to see help");
 });
 
-Module({
-  command: "antilink",
-  package: "group",
-  description: "Manage anti-link settings",
-})(async (message, match) => {
-  await message.loadGroupInfo();
-  if (!message.isGroup) return message.send(theme.isGroup);
-  if (!message.isAdmin && !message.isFromMe) return message.send(theme.isAdmin);
-
-  const data = await groupDB(["link"], { jid: message.from }, "get");
-  const current = data.link || {
-    status: "false",
-    action: "null",
-    not_del: [],
-    warns: {},
-    warn_count: 3,
-  };
-
-  const rawMatch = match?.trim();
-  const lowerMatch = rawMatch?.toLowerCase();
-  const actions = ["null", "warn", "kick"];
-  
-  if (lowerMatch === "reset") {
-    await message.react("⏳");
-    await groupDB(
-      ["link"],
-      {
-        jid: message.from,
-        content: {
-          status: "false",
-          action: "null",
-          not_del: [],
-          warns: {},
-          warn_count: 3,
-        },
-      },
-      "set"
-    );
-    await message.react("✅");
-    return await message.send(
-      "♻️ *Antilink settings have been reset to default!*"
-    );
-  }
-  
-  if (!rawMatch) {
-    return await message.sendreply(
-      `* Antilink Settings*\n\n` +
-        `• *Status:* ${current.status === "true" ? "✅ ON" : "❌ OFF"}\n` +
-        `• *Action:* ${
-          current.action === "null"
-            ? "🚫 Null"
-            : current.action === "warn"
-            ? "⚠️ Warn"
-            : "❌ Kick"
-        }\n` +
-        `• *Warn Before Kick:* ${current.warn_count}\n` +
-        `• *Ignore URLs:* ${
-          current.not_del?.length > 0 ? current.not_del.join(", ") : "None"
-        }\n\n` +
-        `*Commands:*\n` +
-        `• antilink on/off\n` +
-        `• antilink action warn/kick/null\n` +
-        `• antilink set_warn <number>\n` +
-        `• antilink not_del <url>\n` +
-        `• antilink reset`
-    );
-  }
-  
-  if (lowerMatch === "on") {
-    await message.react("⏳");
-    await groupDB(
-      ["link"],
-      {
-        jid: message.from,
-        content: { ...current, status: "true" },
-      },
-      "set"
-    );
-    await message.react("✅");
-    return await message.send(
-      `✅ Antilink activated with action *${current.action}*`
-    );
-  }
-  
-  if (lowerMatch === "off") {
-    await message.react("⏳");
-    await groupDB(
-      ["link"],
-      {
-        jid: message.from,
-        content: { ...current, status: "false" },
-      },
-      "set"
-    );
-    await message.react("✅");
-    return await message.send(`❌ Antilink deactivated`);
-  }
-  
-  if (lowerMatch.startsWith("action")) {
-    const action = rawMatch
-      .replace(/action/i, "")
-      .trim()
-      .toLowerCase();
-    if (!actions.includes(action)) {
-      await message.react("❌");
-      return await message.send(
-        "❗ Invalid action! Use: `warn`, `kick`, or `null`"
-      );
+// Auto-enforce on every text message (fast)
+Module({ on: "text" })(async (message) => {
+    try {
+        await enforceMessage(message);
+    } catch (e) {
+        console.error("antilink auto error:", e);
     }
-
-    await message.react("⏳");
-    await groupDB(
-      ["link"],
-      {
-        jid: message.from,
-        content: { ...current, action },
-      },
-      "set"
-    );
-    await message.react("✅");
-    return await message.send(`⚙️ Antilink action set to *${action}*`);
-  }
-
-  if (lowerMatch.startsWith("set_warn")) {
-    const count = parseInt(rawMatch.replace(/set_warn/i, "").trim());
-    if (isNaN(count) || count < 1 || count > 10) {
-      await message.react("❌");
-      return await message.send(
-        "❗ Please provide a valid number between 1 and 10"
-      );
-    }
-
-    await message.react("⏳");
-    await groupDB(
-      ["link"],
-      {
-        jid: message.from,
-        content: { ...current, warn_count: count },
-      },
-      "set"
-    );
-    await message.react("✅");
-    return await message.send(`🚨 Antilink warning count set to *${count}*`);
-  }
-  
-  if (lowerMatch.startsWith("not_del")) {
-    const url = rawMatch.replace(/not_del/i, "").trim();
-    if (!url.startsWith("http")) {
-      await message.react("❌");
-      return await message.send(
-        "❗ Please provide a valid URL (must start with http)"
-      );
-    }
-    const list = current.not_del || [];
-    if (list.some((link) => link.toLowerCase() === url.toLowerCase())) {
-      await message.react("❌");
-      return await message.send("⚠️ URL is already in the ignore list");
-    }
-    
-    await message.react("⏳");
-    list.push(url);
-    await groupDB(
-      ["link"],
-      {
-        jid: message.from,
-        content: { ...current, not_del: list },
-      },
-      "set"
-    );
-    await message.react("✅");
-    return await message.send("✅ URL added to ignore list (case preserved)");
-  }
-  
-  await message.react("❌");
-  return await message.send("⚠️ Invalid usage. Type `antilink` to see help.");
 });
