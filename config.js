@@ -1,46 +1,36 @@
-const { existsSync } = require("fs");
+const fs = require("fs");
 const path = require("path");
-const { Sequelize } = require("sequelize");
-if (existsSync(path.join(__dirname, "config.env"))) {
-  require("dotenv").config({ path: path.join(__dirname, "config.env") });
+const envPath = path.join(__dirname, "config.env");
+if (fs.existsSync(envPath)) {
+  require("dotenv").config({ path: envPath });
 }
-const isTrue = (x) => x === "true" || x === true;
-const DB_URL = process.env.DATABASE_URL || "";
+const isTrue = (x) => String(x).toLowerCase() === "true";
+
 module.exports = {
-  SESSION_ID: process.env.SESSION_ID || "", //add your session id here
+  // ================= SESSION ================= //
+  SESSION_ID:
+    process.env.SESSION_ID ||
+    "", // add your session id here
 
+  // ================= MENU ================= //
+  MENU_INFO:
+    process.env.MENU_INFO ||
+    "x-kira,https://i.postimg.cc/TY3P8vv2/𝙎𝙒𝙄𝙋𝙀-𝙋𝙄𝘾𝙎-GC-link-in-bio-𝘿𝙈-𝙋𝘼𝙄𝘿-𝙁𝙊𝙍-𝙋𝙍𝙊𝙈𝙊𝙏𝙄𝙊𝙉-𝙅𝙊-1.webp,image",
+  // name,link,type(image/video/gif)
 
-  MENU_INFO: process.env.MENU_INFO || "𓆩〭᪳〬Ꮓ͢Ꭺɼ֟፝ιន͜𝙷̐𝙰𓆪᪳,https://files.catbox.moe/e1xo1b.mp4,video",
-  THEME: process.env.THEME || "t", //Garfield
-  maxFileSize: parseInt(process.env.MAX_FILE_SIZE) || 100 * 1024 * 1024,
+  THEME: process.env.THEME || "t", // Garfield
+
+  // ================= BOT MODE ================= //
   WORK_TYPE: process.env.WORK_TYPE || "public",
   prefix: process.env.PREFIX || ".",
-  STATUS_REACT: isTrue(process.env.STATUS_REACT) || false, // true
+  BOT_NAME: process.env.BOT_NAME || "x-kira bot",
+
+  // ================= FEATURES ================= //
+  STATUS_REACT: isTrue(process.env.STATUS_REACT) || false,
   AUTOREAD: isTrue(process.env.AUTOREAD) || false,
   AUTOTYPING: isTrue(process.env.AUTOTYPING) || false,
   AUTOREACT: isTrue(process.env.AUTOREACT) || false,
   STATUS_SEEN: isTrue(process.env.STATUS_SEEN) || false,
 
-  autoread: isTrue(process.env.AUTOREAD) || false,
-  autotyping: isTrue(process.env.AUTOTYPING) || false,
-  autoreact: isTrue(process.env.AUTOREACT) || false,
-  autostatus_seen: isTrue(process.env.STATUS_SEEN) || false,
-  autostatus_react: isTrue(process.env.STATUS_REACT) || false,
-
-  DATABASE: DB_URL
-    ? new Sequelize(DB_URL, {
-      dialect: "postgres",
-      ssl: true,
-      protocol: "postgres",
-      dialectOptions: {
-        native: true,
-        ssl: { require: true, rejectUnauthorized: false },
-      },
-      logging: false,
-    })
-    : new Sequelize({
-      dialect: "sqlite",
-      storage: "./database.db",
-      logging: false,
-    }),
+  // =========================================== //
 };

@@ -174,7 +174,6 @@ Module({
     if (!event || !event.id || !event.action || !Array.isArray(event.participants)) return;
     const groupJid = event.id;
 
-    // get group metadata from cache or load and cache
     let md = cache.getCached(groupJid);
     if (!md) {
       try {
@@ -235,17 +234,24 @@ Module({
         const pdmOn = settings.getGlobal("pdm") || false;
         if (!toBool(pdmOn)) continue;
 
+        const botname =
+          settings.getGlobal("BOT_NAME") ??
+          config.BOT_NAME ??
+          "BOT";
         // actor may not be present in all versions; try common fields
         const actor = event.actor || event.author || event.by || null;
         const actorText = actor ? `@${actor.split("@")[0]}` : "Admin";
         const targetText = `@${participantJid.split("@")[0]}`;
         const actionText = event.action === "promote" ? "promoted" : "demoted";
-        const sendText = `${actorText} ${actionText} ${targetText}`;
-
+        // const sendText = `${actorText} ${actionText} ${targetText}`;
+        const sendText = `╭─〔 *🎉 Admin Event* 〕
+├─ ${actorText} has ${actionText} ${targetText}
+├─ Group: ${groupName}
+╰─➤ *Powered by ${botname}*`;
         try {
           await conn.sendMessage(groupJid, { text: sendText }, { mentions: [actor, participantJid].filter(Boolean) });
         } catch (e) {
-          try { await conn.sendMessage(groupJid, { text: sendText }); } catch (_) {}
+          try { await conn.sendMessage(groupJid, { text: sendText }); } catch (_) { }
         }
       }
     }

@@ -3,7 +3,6 @@ const { WhatsApp } = require("./lib/index");
 const config = require("./config.js");
 const app = express();
 const PORT = process.env.PORT || 8000;
-const { initDatabases } = require("./lib/database/index.js");
 const db = require('./lib/database/settingdb');
 app.use(express.json());
 
@@ -14,18 +13,17 @@ app.get("/", (req, res) => {
     timestamp: new Date().toISOString(),
   });
 });
-
+// ================================================
 // Start server and initialize WhatsApp session (if configured)
 app.listen(PORT, async () => {
-  try {
+   try {
+     console.log(`Server running on port ${PORT}`);
   console.log("Initializing databases...");
    await db.init();
   console.log('DB initialized. startup:', db.getStartupTime());
-  await initDatabases();
-  console.log(`databases initialized. Server is running on port ${PORT}`);
   const sessionId = config.SESSION_ID;
   if (!sessionId) {
-    console.log("No SESSION_ID configured; skipping WhatsApp initialization");
+    console.log("please set SESSION_ID in config.js");
     return;
   }
     const wa = new WhatsApp('x-kira');
