@@ -4,8 +4,7 @@ const settings = require("../lib/database/settingdb");
 const config = require("../config");
 
 const readMore = String.fromCharCode(8206).repeat(4001);
-const INVISIBLE_MARK = "\u2063MENU_MAP_v1"; // invisible marker to identify our menu
-
+const INVISIBLE_MARK = "\u2063"; 
 const runtime = (secs) => {
   const pad = (s) => s.toString().padStart(2, "0");
   const h = Math.floor(secs / 3600);
@@ -24,7 +23,6 @@ Module({ command: "menu", package: "general", description: "Show all commands or
       const usedGB = ((os.totalmem() - os.freemem()) / 1073741824).toFixed(2);
       const totGB = (os.totalmem() / 1073741824).toFixed(2);
       const ram = `${usedGB} / ${totGB} GB`;
-
       const grouped = commands
         .filter((cmd) => cmd.command && cmd.command !== "undefined")
         .reduce((acc, cmd) => {
@@ -32,7 +30,6 @@ Module({ command: "menu", package: "general", description: "Show all commands or
           acc[cmd.package].push(cmd.command);
           return acc;
         }, {});
-
       const workType = settings.getGlobal("WORK_TYPE") ?? config.WORK_TYPE ?? "public";
       const prefix = settings.getGlobal("prefix") ?? config.prefix ?? ".";
       const menuInfo = settings.getGlobal("MENU_INFO") ?? config.MENU_INFO ?? "bot,[https://i.postimg.cc/pVZd1X4L/DM-FOR-PAID-PROMOTION-B-o-y-P-F-P-𝐼𝐺-3.webp,photo](https://i.postimg.cc/pVZd1X4L/DM-FOR-PAID-PROMOTION-B-o-y-P-F-P-𝐼𝐺-3.webp,photo)";
@@ -77,7 +74,10 @@ ${readMore}
           }
           _cmd_st += ` *┕──────────────────❒*\n`;
         }
-       // _cmd_st += `\nᴛʜᴇ ʜᴇᴀʀᴛ ʜᴇᴀᴄᴋᴇʀ ɢɪʀʟ   𐏓꯭꯭❀𝄄𝄀꯭𝄄꯭ 𝐙͟𝐚͟𝐫͟𝐢͟𝐬͟𝐡͟𝐚͟❀͟𝄄𝄀꯭𝄄꯭⸙⟶`;
+        _cmd_st += `\n═════ ✥.❖.✥ ═════
+ᴛʜᴇ ʜᴇᴀʀᴛ ʜᴀᴄᴋᴇʀ ɢɪʀʟ
+ㅤ𐏓꯭꯭❀𝄄𝄀꯭𝄄꯭ 𝐙͟𝐚͟𝐫͟𝐢͟𝐬͟𝐡͟𝐚͟❀͟𝄄𝄀꯭𝄄꯭⸙⟶
+═════ ✥.❖.✥ ═════`;
       }
       _cmd_st += INVISIBLE_MARK;
 

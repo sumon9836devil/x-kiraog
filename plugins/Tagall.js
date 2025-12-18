@@ -1,224 +1,150 @@
 const { Module } = require("../lib/plugins");
 const { getTheme } = require("../Themes/themes");
 const theme = getTheme();
+const cache = require("../lib/group-cache");
+
 Module({
   command: "tagall",
   package: "group",
-  description: "Tag all group members with custom style",
+  description: "Tag all group members with custom style (cached)",
 })(async (m, text) => {
   if (!m.isGroup) return m.send(theme.isGroup);
-  await m.loadGroupInfo();
-  if (!m.isAdmin && !m.isFromMe) {
-    return m.send(theme.isAdmin);
-  }
+  if (!m.isAdmin && !m.isFromMe) return m.send(theme.isAdmin);
   try {
     const conn = m.conn;
     const from = m.from;
-    const groupMetadata = await conn.groupMetadata(from);
-    const participants = groupMetadata.participants;
+    let groupMetadata = cache.getCached(from);
+    if (!groupMetadata) {
+      groupMetadata = await cache.getGroupMetadata(conn, from);
+    }
+    const participants = groupMetadata.participants || [];
     const groupName = groupMetadata.subject || "Unknown Group";
-    let totalMembers = participants ? participants.length : 0;
-    if (totalMembers === 0)
+    const totalMembers = participants.length;
+    if (!totalMembers)
       return m.sendreply("❌ No members found in this group.");
     const msgText = text?.trim() || "ATTENTION EVERYONE";
     const emojis = [
-      "⚡",
-      "✨",
-      "🎖️",
-      "💎",
-      "🔱",
-      "💗",
-      "❤‍🩹",
-      "👻",
-      "🌟",
-      "🪄",
-      "🎋",
-      "🪼",
-      "🍿",
-      "👀",
-      "👑",
-      "🦋",
-      "🐋",
-      "🌻",
-      "🌸",
-      "🔥",
-      "🍉",
-      "🍧",
-      "🍨",
-      "🍦",
-      "🧃",
-      "🪀",
-      "🎾",
-      "🪇",
-      "🎲",
-      "🎡",
-      "🧸",
-      "🎀",
-      "🎈",
-      "🩵",
-      "♥️",
-      "🚩",
-      "🏳️‍🌈",
-      "🏖️",
-      "🔪",
-      "🎏",
-      "🫐",
-      "🍓",
-      "💋",
-      "🍄",
-      "🎐",
-      "🍇",
-      "🐍",
-      "🪻",
-      "🪸",
-      "💀",
+      "⚡", "✨", "🎖️", "💎", "🔱", "💗", "❤‍🩹", "👻", "🌟", "🪄",
+      "🎋", "🪼", "🍿", "👀", "👑", "🦋", "🐋", "🌻", "🌸", "🔥",
+      "🍉", "🍧", "🍨", "🍦", "🧃", "🪀", "🎾", "🪇", "🎲", "🎡",
+      "🧸", "🎀", "🎈", "🩵", "♥️", "🚩", "🏳️‍🌈", "🏖️", "🔪",
+      "🎏", "🫐", "🍓", "💋", "🍄", "🎐", "🍇", "🐍", "🪻", "🪸", "💀"
     ];
     const getEmoji = () => emojis[Math.floor(Math.random() * emojis.length)];
-    let tagText = `*▢ GROUP : ${groupName}*\n*▢ MEMBERS : ${totalMembers}*\n*▢ MESSAGE : ${msgText}*\n\n╭┈─「 ɦเ αℓℓ ƒɾเεɳ∂ร 🥰 」┈❍\n`;
+    let tagText = `
+*🪷 GROUP : ${groupName}*
+*🪷 MEMBERS : ${totalMembers}*
+*🪷 MESSAGE : ${msgText}*
+
+   *╭┈─「 𝐇𝐞𝐥𝐥𝐨 𝐄𝐯𝐞𝐫𝐲𝐨𝐧𝐞 」┈❍*
+`;
+    let i = 1;
     for (const p of participants) {
-      tagText += `│${getEmoji()} @${p.id.split("@")[0]}\n`;
+      tagText += `*${i}.│${getEmoji()} ᩧ𝆺ྀི𝅥*  @${p.id.split("@")[0]}\n`;
+      i++;
     }
-    tagText += "╰────────────❍";
-    const mentions = participants.map((p) => p.id);
+    tagText += `   *╰────────────❍*
+> ═════ ✥.❖.✥ ═════
+> ᴛʜᴇ ʜᴇᴀʀᴛ ʜᴀᴄᴋᴇʀ ɢɪʀʟ
+> 𐏓꯭꯭❀𝄄𝄀꯭𝄄꯭ 𝐙͟𝐚͟𝐫͟𝐢͟𝐬͟𝐡͟𝐚͟ ❀͟𝄄𝄀꯭𝄄꯭⸙⟶
+> ═════ ✥.❖.✥ ═════`;
+    const mentions = participants.map(p => p.id);
     await conn.sendMessage(
       from,
-      {
-        text: tagText,
-        mentions,
-      },
+      { text: tagText, mentions },
       { quoted: m.raw }
     );
   } catch (err) {
     console.error("tagall error:", err);
-    m.sendreply("❌ An error occurred while tagging members.");
+    m.sendreply("❌ Failed to tag members.");
   }
 });
+
 
 Module({
   command: "admin",
   package: "group",
-  description: "Tag all group admins",
+  description: "Tag all group admins (cached)",
 })(async (m, text) => {
-  await m.loadGroupInfo(m.from);
   if (!m.isGroup) return m.send(theme.isGroup);
-
   try {
     const conn = m.conn;
     const from = m.from;
-    const groupMetadata = await conn.groupMetadata(from);
-    const participants = groupMetadata.participants;
-    const groupName = groupMetadata.subject || "Unknown Group";
-
-    // Filter only admins and super admins
-    const admins = participants.filter(
-      (p) => p.admin === "admin" || p.admin === "superadmin"
-    );
-    const totalAdmins = admins.length;
-
-    if (totalAdmins === 0) {
-      return await m.sendReply("❌ No admins found in this group.");
+    let groupMetadata = cache.getCached(from);
+    if (!groupMetadata) {
+      groupMetadata = await cache.getGroupMetadata(conn, from);
     }
-
+    const participants = groupMetadata.participants || [];
+    const groupName = groupMetadata.subject || "Unknown Group";
+    const admins = participants.filter(
+      p => p.admin === "admin" || p.admin === "superadmin"
+    );
+    if (!admins.length) {
+      return m.sendReply("❌ No admins found in this group.");
+    }
     const msgText = text?.trim() || "ATTENTION ADMINS";
-
     const emojis = [
-      "⚡",
-      "✨",
-      "🎖️",
-      "💎",
-      "🔱",
-      "💗",
-      "❤‍🩹",
-      "👻",
-      "🌟",
-      "🪄",
-      "🎋",
-      "🪼",
-      "🍿",
-      "👀",
-      "👑",
-      "🦋",
-      "🐋",
-      "🌻",
-      "🌸",
-      "🔥",
-      "🍉",
-      "🍧",
-      "🍨",
-      "🍦",
-      "🧃",
-      "�",
-      "🎾",
-      "🪇",
-      "🎲",
-      "🎡",
-      "🧸",
-      "🎀",
-      "🎈",
-      "🩵",
-      "♥️",
-      "🚩",
-      "🏳️‍🌈",
-      "🏖️",
-      "🔪",
-      "🎏",
-      "🫐",
-      "🍓",
-      "💋",
-      "🍄",
-      "🎐",
-      "🍇",
-      "🐍",
-      "🪻",
-      "🪸",
-      "💀",
+      "⚡", "✨", "🎖️", "💎", "🔱", "💗", "❤‍🩹", "👻", "🌟", "🪄",
+      "🎋", "🪼", "🍿", "👀", "👑", "🦋", "🐋", "🌻", "🌸", "🔥",
+      "🍉", "🍧", "🍨", "🍦", "🧃", "🎾", "🪇", "🎲", "🎡", "🧸",
+      "🎀", "🎈", "🩵", "♥️", "🚩", "🏳️‍🌈", "🏖️", "🔪", "🎏",
+      "🫐", "🍓", "💋", "🍄", "🎐", "🍇", "🐍", "🪻", "🪸", "💀"
     ];
-
     const getEmoji = () => emojis[Math.floor(Math.random() * emojis.length)];
+    let tagText = `
+*🪷 GROUP : ${groupName}*
+*🪷 ADMINS : ${admins.length}*
+*🪷 MESSAGE : ${msgText}*
 
-    let tagText = `*▢ GROUP : ${groupName}*\n*▢ ADMINS : ${totalAdmins}*\n*▢ MESSAGE : ${msgText}*\n\n*╭┈─「 αℓℓ α∂ɱเɳร 👑 」┈❍*\n`;
-
+   *╭┈─「 αℓℓ α∂ɱเɳร 👑 」┈❍*
+`;
+    let i = 1;
     for (const admin of admins) {
       const role = admin.admin === "superadmin" ? "🌟" : "👮";
-      tagText += `*│${getEmoji()} ${role}* @${admin.id.split("@")[0]}\n`;
+      tagText += `*${i}.│${getEmoji()} ${role}* @${admin.id.split("@")[0]}\n`;
+      i++;
     }
-
-    tagText += "*╰────────────❍*";
-
-    const mentions = admins.map((a) => a.id);
-
+    tagText += `   *╰────────────❍*`;
+    const mentions = admins.map(a => a.id);
     await conn.sendMessage(
       from,
-      {
-        text: tagText,
-        mentions,
-      },
+      { text: tagText, mentions },
       { quoted: m.raw }
     );
   } catch (err) {
     console.error("admin tag error:", err);
-    await m.sendReply("❌ An error occurred while tagging admins.");
+    m.sendReply("❌ An error occurred while tagging admins.");
   }
 });
 
 Module({
   command: "hidetag",
   package: "group",
-  description: "Tag all without showing names",
+  description: "Tag all without showing names (cached)",
 })(async (m, text) => {
   if (!m.isGroup) return m.send(theme.isGroup);
-
-  await m.loadGroupInfo();
-
   if (!m.isAdmin && !m.isFromMe) return m.send(theme.isAdmin);
-
   try {
-    const message = text || "📢 Everyone has been tagged!";
-    const mentions = m.groupParticipants.map((p) => p.id);
-
-    await m.send({ text: message, mentions });
+    const conn = m.conn;
+    const from = m.from;
+    let groupMetadata = cache.getCached(from);
+    if (!groupMetadata) {
+      groupMetadata = await cache.getGroupMetadata(conn, from);
+    }
+    const participants = groupMetadata.participants || [];
+    if (!participants.length) {
+      return m.reply("❌ No members found.");
+    }
+    const message = text?.trim() || "📢 Everyone has been tagged!";
+    const mentions = participants.map(p => p.id);
+    await conn.sendMessage(
+      from,
+      { text: message, mentions },
+      { quoted: m.raw }
+    );
     await m.react("👻");
   } catch (err) {
-    await m.reply("❌ Error: " + err.message);
+    console.error("hidetag error:", err);
+    m.reply("❌ Error: " + err.message);
   }
 });

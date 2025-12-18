@@ -287,21 +287,15 @@ Module({
             return await message.send("Invalid not_del subcommand. Use add/remove/list");
         }
     }
-
-    // reset
     if (lower === "reset") {
         cfg = defaultConfig();
         await settings.setGroupPlugin(message.from, "link", cfg);
         await message.react("✅");
         return await message.send("♻️ Antilink settings reset to defaults (enabled, action: kick)");
     }
-
-    // fallback
     await message.react("❌");
     return await message.send("Invalid command. Type `antilink` to see help");
 });
-
-// Auto-enforce on every text message (fast)
 Module({ on: "text" })(async (message) => {
     try {
         await enforceMessage(message);

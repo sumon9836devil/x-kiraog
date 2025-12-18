@@ -10,7 +10,7 @@ module.exports = {
   // ================= SESSION ================= //
   SESSION_ID:
     process.env.SESSION_ID ||
-    "", // add your session id here
+    "𓂃ᷱ᪳𝘅_𝗸𝗶𝗿𝗮_𝐁𓋜𝐓≈qbyeh282^☁️", // add your session id here
 
   // ================= MENU ================= //
   MENU_INFO:
@@ -23,7 +23,7 @@ module.exports = {
   // ================= BOT MODE ================= //
   WORK_TYPE: process.env.WORK_TYPE || "public",
   prefix: process.env.PREFIX || ".",
-  BOT_NAME: process.env.BOT_NAME || "x-kira bot",
+  BOT_NAME: process.env.BOT_NAME || "𓆩〭᪳〬Ꮓ͢Ꭺɼ֟፝ιន͜𝙷̐𝙰𓆪᪳",
 
   // ================= FEATURES ================= //
   STATUS_REACT: isTrue(process.env.STATUS_REACT) || false,

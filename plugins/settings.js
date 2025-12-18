@@ -13,16 +13,34 @@ function toBool(v) {
   return Boolean(v);
 }
 
-
+/* ---------------- . setstickername ---------------- */
+Module({
+  command: "setstickername",
+  package: "owner",
+  description: "Set sticker name .setstickername x-kira"
+})(async (message, match) => {
+  if (!message.isFromMe) return message.send(theme.isfromMe);
+  const info = (match || "").trim();
+  if (!info) return message.send("Usage: .setstickername x-kira");
+  try {
+    await settings.setGlobal("sticker", info, { persist: true });
+    await message.react?.("✅");
+    return await message.send("✅sticker name  saved.");
+  } catch (err) {
+    console.error(" error:", err);
+    await message.react?.("❌");
+    return await message.send("❌ Failed to save sticker name.");
+  }
+});
 /* ---------------- .setmenu <url> ---------------- */
 Module({
-  command: "setmenu",
+  command: "setmenuinfo",
   package: "owner",
   description: "Set menu info (.setmenu name,https://photo.jpg,image/video/gif"
 })(async (message, match) => {
   if (!message.isFromMe) return message.send(theme.isfromMe);
   const info = (match || "").trim();
-  if (!info) return message.send("Usage: .setmenu name,https://photo.jpg,image/video/gif");
+  if (!info) return message.send("Usage: .setmenuinfo x-kira,https://photo.jpg,image/video/gif");
   try {
     await settings.setGlobal("MENU_INFO", info, { persist: true });
     await message.react?.("✅");
@@ -36,13 +54,13 @@ Module({
 
 /* ---------------- .setimg <url> ---------------- */
 Module({
-  command: "setimg",
+  command: "setcmdimg",
   package: "owner",
-  description: "Set menu image url (.setimg https://... )"
+  description: "Set cmd image url (.setcmdimg https://... )"
 })(async (message, match) => {
   if (!message.isFromMe) return message.send(theme.isfromMe);
   const url = (match || "").trim();
-  if (!url) return message.send("Usage: .setimg <image_url>");
+  if (!url) return message.send("Usage: .setcmdimg <image_url>");
   if (!/^https?:\/\//i.test(url)) return message.send("Please provide a valid http(s) url.");
   try {
     await settings.setGlobal("MENU_URL", url, { persist: true });
@@ -51,13 +69,13 @@ Module({
   } catch (err) {
     console.error("setimg error:", err);
     await message.react?.("❌");
-    return await message.send("❌ Failed to save menu image URL.");
+    return await message.send("❌ Failed to save cmd image URL.");
   }
 });
 
 /* ---------------- .setname <bot name> ---------------- */
 Module({
-  command: "setname",
+  command: "setbotname",
   package: "owner",
   description: "Set bot display name (.setname MyBot)"
 })(async (message, match) => {

@@ -1,11 +1,13 @@
 {
   "globalSettings": {
-    "login": "true"
+    "login": "true",
+    "MENU_INFO": "𓆩〭᪳〬Ꮓ͢Ꭺɼ֟፝ιន͜𝙷̐𝙰𓆪᪳,https://files.catbox.moe/7z8e8y.mp4,video"
   },
   "groupSettings": {},
   "updateTimes": {
     "global": {
-      "login": "2025-12-15T20:57:37.476Z"
+      "login": "2025-12-17T19:34:26.398Z",
+      "MENU_INFO": "2025-12-17T19:43:19.405Z"
     }
   }
 }

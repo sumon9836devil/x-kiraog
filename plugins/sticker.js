@@ -1,6 +1,7 @@
 const { Module } = require('../lib/plugins');
 const sticker = require('../lib/sticker');
 const config = require('../config');
+const settings = require("../lib/database/settingdb");
 
 Module({
   command: 'take',
@@ -29,9 +30,10 @@ Module({
   if (!/image|video|gif/.test(mediaa.type)) {
   return await message.send('_Reply to an image or video_'); }
   const media = await mediaa.download();
+  const packname = settings.getGlobal("sticker") ?? config.sticker ?? "Kira-MD";
   const buffer = await sticker.toSticker(mediaa.type, media, {
-  packname: config.packname,
-  author: config.author
+  packname,
+  author: '@x-kira',
   });
   await message.send({ sticker: buffer });
 });
