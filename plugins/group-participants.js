@@ -4,6 +4,7 @@ const { Module } = require("../lib/plugins");
 const settings = require("../lib/database/settingdb");
 const cache = require("../lib/group-cache");
 const axios = require("axios");
+const config = require("../config");
 const { getTheme } = require("../Themes/themes");
 const theme = getTheme();
 
@@ -236,7 +237,7 @@ Module({
 ├─ Group: ${groupName}
 ╰─➤ *Powered by ${botname}*`;
         try {
-          await conn.sendMessage(groupJid, { text: sendText }, { mentions: [actor, participantJid].filter(Boolean) });
+          await conn.sendMessage(groupJid, { text: sendText,  mentions: [actor, participantJid].filter(Boolean) });
         } catch (e) {
           try { await conn.sendMessage(groupJid, { text: sendText }); } catch (_) { }
         }

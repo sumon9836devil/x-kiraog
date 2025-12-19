@@ -1,7 +1,8 @@
 const { fetchGif, gifToVideo } = require("../lib/fetchGif");
 const { Module } = require("../lib/plugins");
 const axios = require("axios");
-
+const settings = require("../lib/database/settingdb");
+const config = require("../config");
 // Define reactions with their API endpoints
 const reactions = {
   cry: {
@@ -147,7 +148,10 @@ async function sendReactionGif(message, reactionType) {
 
     // Build message with @ mentions
     const sender = `@${senderJid.split("@")[0]}`;
-
+    const botname =
+      settings.getGlobal("BOT_NAME") ??
+      config.BOT_NAME ??
+      "x-kira";
     let caption;
     let mentionsList = [senderJid];
 
@@ -158,7 +162,7 @@ async function sendReactionGif(message, reactionType) {
     } else if (message.isGroup) {
       caption = `${sender} ${reactionType.action} everyone!`;
     } else {
-      caption = "> *© ᴘσωєʀє∂ ву `kira 𝙼ԃ`⎯꯭̽💀*";
+      caption = `> *© ᴘσωєʀє∂ ву ${botname}*`;
     }
 
     // Fetch and send GIF

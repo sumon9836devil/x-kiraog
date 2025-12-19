@@ -171,7 +171,6 @@ Module({
 Module({
   command: "kick",
   package: "group",
-  aliases: ["remove"],
   description: "Remove member from group",
   usage: ".kick <reply|tag>",
 })(async (message) => {

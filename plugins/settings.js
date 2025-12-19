@@ -34,7 +34,7 @@ Module({
 });
 /* ---------------- .setmenu <url> ---------------- */
 Module({
-  command: "setmenuinfo",
+  command: "setmenu",
   package: "owner",
   description: "Set menu info (.setmenu name,https://photo.jpg,image/video/gif"
 })(async (message, match) => {
@@ -54,9 +54,9 @@ Module({
 
 /* ---------------- .setimg <url> ---------------- */
 Module({
-  command: "setcmdimg",
+  command: "setimg",
   package: "owner",
-  description: "Set cmd image url (.setcmdimg https://... )"
+  description: "Set cmd image url (.setimg https://... )"
 })(async (message, match) => {
   if (!message.isFromMe) return message.send(theme.isfromMe);
   const url = (match || "").trim();
