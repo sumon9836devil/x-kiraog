@@ -1,16 +1,16 @@
 const fs = require("fs");
 const axios = require("axios");
-const fetch = require("node-fetch");
+// use dynamic import wrapper for node-fetch (works in most Node versions)
+const fetch = (...args) =>
+  import("node-fetch").then(({ default: fetch }) => fetch(...args));
 const os = require("os");
 const path = require("path");
 const yts = require("yt-search");
 const { File } = require("megajs");
 const { promisify } = require("util");
 const stream = require("stream");
+const { Module } = require("../lib/plugins.js");
 const pipeline = promisify(stream.pipeline);
-//const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
-
-const { Module } = require("../lib/plugins");
 
 const x = "AIzaSyDLH31M0HfyB7Wjttl6QQudyBEq5x9s1Yg";
 
@@ -30,6 +30,19 @@ async function tryApis(apiList, buildUrlFn, options = {}) {
     }
   }
   return null;
+}
+
+// Helper function to download video using the new API
+async function downloadYtVideo(url, resolution = "720p") {
+  console.log(url);
+  const apiUrl = `https://api.privatezia.biz.id/api/downloader/ytmp4?url=${encodeURIComponent(
+    url
+  )}&resolution=${resolution}`;
+  const response = await axios.get(apiUrl);
+  if (!response.data || !response.data.success) {
+    throw new Error("Failed to fetch video data from API");
+  }
+  return response.data.data;
 }
 
 // Helper: download stream to temp file
@@ -94,95 +107,69 @@ async function ytSearch(query, max = 10) {
   }));
 }
 
-// Helper function to download audio using the new API
-async function downloadYtAudio(url) {
-  const apiUrl = `https://api.zenzxz.my.id/api/downloader/ytmp3?url=${encodeURIComponent(
-    url
+async function downloadYtAudio(query) {
+  const apiUrl = `https://api.privatezia.biz.id/api/downloader/ytplaymp3?query=${encodeURIComponent(
+    query
   )}`;
   const response = await axios.get(apiUrl);
-
-  if (!response.data || !response.data.success) {
+  if (!response.data || !response.data.status) {
     throw new Error("Failed to fetch audio data from API");
   }
-
-  return response.data.data;
+  return response.data.result;
 }
 
-// Helper function to download video using the new API
-async function downloadYtVideo(url, resolution = "720p") {
-  const apiUrl = `https://api.zenzxz.my.id/api/downloader/ytmp4?url=${encodeURIComponent(
-    url
-  )}&resolution=${resolution}`;
-  const response = await axios.get(apiUrl);
-
-  if (!response.data || !response.data.success) {
-    throw new Error("Failed to fetch video data from API");
-  }
-
-  return response.data.data;
-}
-
-// Helper function to handle song downloads
 async function handleSongDownload(conn, input, message) {
   let videoUrl = input;
   let videoInfo = null;
-
   // Check if input is a URL or search query
   const urlRegex = /(?:youtube\.com\/.*v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
   if (!urlRegex.test(input)) {
-    // Search for the song
+    // Search for the song using the new API
     await message.react("🔍");
-    const searchResults = await yts(input);
-    if (!searchResults.videos || searchResults.videos.length === 0) {
-      return await message.send("❌ No results found");
+    try {
+      const audioData = await downloadYtAudio(input);
+      // Download the audio file
+      await message.react("⬇️");
+      const audioBuffer = await axios.get(audioData.downloadUrl, {
+        responseType: "arraybuffer",
+      });
+      // Send audio with thumbnail and link preview
+      await message.react("🎧");
+      await conn.sendMessage(message.from, {
+        audio: Buffer.from(audioBuffer.data),
+        mimetype: "audio/mpeg",
+        fileName: `${audioData.title}.mp3`,
+        contextInfo: {
+          externalAdReply: {
+            title: audioData.title,
+            body: `Duration: ${Math.floor(audioData.duration / 60)}:${(
+              audioData.duration % 60
+            )
+              .toString()
+              .padStart(2, "0")} | Quality: ${audioData.quality}`,
+            thumbnail: await axios
+              .get(audioData.thumbnail, { responseType: "arraybuffer" })
+              .then((res) => Buffer.from(res.data)),
+            mediaType: 2,
+            mediaUrl: audioData.videoUrl,
+            sourceUrl: audioData.videoUrl,
+          },
+        },
+      });
+    } catch (error) {
+      // Fallback to old method if new API fails
+      console.log("New API failed, falling back to old method:", error.message);
+      await fallbackSongDownload(conn, input, message);
     }
-    videoInfo = searchResults.videos[0];
-    videoUrl = videoInfo.url;
   } else {
-    // Get video info from URL
-    const videoId = input.match(urlRegex)[1];
-    const searchResults = await yts({ videoId: videoId });
-    videoInfo = searchResults;
+    // For URLs, use the old method
+    await fallbackSongDownload(conn, input, message);
   }
-
-  // Download audio
-  await message.react("⬇️");
-  const audioData = await downloadYtAudio(videoUrl);
-
-  // Download the audio file
-  const audioBuffer = await axios.get(audioData.download_url, {
-    responseType: "arraybuffer",
-  });
-
-  // Send audio with thumbnail and link preview
-  await message.react("🎧");
-  await conn.sendMessage(message.from, {
-    audio: Buffer.from(audioBuffer.data),
-    mimetype: "audio/mpeg",
-    fileName: `${audioData.title}.mp3`,
-    contextInfo: {
-      externalAdReply: {
-        title: audioData.title,
-        body: `Duration: ${Math.floor(audioData.duration / 60)}:${(
-          audioData.duration % 60
-        )
-          .toString()
-          .padStart(2, "0")}`,
-        thumbnail: await axios
-          .get(audioData.thumbnail, { responseType: "arraybuffer" })
-          .then((res) => Buffer.from(res.data)),
-        mediaType: 2,
-        mediaUrl: videoUrl,
-        sourceUrl: videoUrl,
-      },
-    },
-  });
 }
 
 // Helper function to handle video downloads
 async function handleVideoDownload(conn, input, message, resolution = "720p") {
   let videoUrl = input;
-
   // Check if input is a URL or search query
   const urlRegex = /(?:youtube\.com\/.*v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
   if (!urlRegex.test(input)) {
@@ -194,21 +181,17 @@ async function handleVideoDownload(conn, input, message, resolution = "720p") {
     }
     videoUrl = searchResults.videos[0].url;
   }
-
   // Download video
   await message.send(`⬇️ Downloading video in ${resolution}...`);
   const videoData = await downloadYtVideo(videoUrl, resolution);
-
   // Download the video file
   const videoBuffer = await axios.get(videoData.download_url, {
     responseType: "arraybuffer",
   });
-
   // Get thumbnail
   const thumbnailBuffer = await axios.get(videoData.thumbnail, {
     responseType: "arraybuffer",
   });
-
   // Send video with small link preview
   await conn.sendMessage(message.from, {
     video: Buffer.from(videoBuffer.data),
@@ -232,7 +215,6 @@ Module({
   const query = match.trim();
   const results = await ytSearch(query, 10);
   if (!results.length) return await message.send("❌ No results found");
-
   let reply = `*YouTube results for "${query}":*\n\n`;
   results.forEach((v, i) => {
     const date = new Date(v.publishedAt).toISOString().split("T")[0];
@@ -240,7 +222,6 @@ Module({
       v.channel
     }\n   Published: ${date}\n   Link: ${v.url}\n\n`;
   });
-
   await message.send({
     image: { url: results[0].thumbnail },
     caption: reply,
@@ -351,11 +332,7 @@ Module({
     );
   try {
     await message.react("⏳");
-    const apiList = [
-      "https://api.privatezia.biz.id",
-      "https://api.zenzxz.my.id",
-      "https://api.finix-id.my.id",
-    ];
+    const apiList = ["https://api.privatezia.biz.id"];
     const result = await tryApis(
       apiList,
       (base) =>
@@ -374,7 +351,6 @@ Module({
     await message.react("⬇️");
     const tempPath = await downloadToTemp(downloadUrl, ".mp3");
     const buffer = fs.readFileSync(tempPath);
-
     // prepare externalAdReply style
     const contextInfo = {};
     if (thumbnail)
@@ -393,17 +369,16 @@ Module({
         })(),
         sourceUrl: r.videoUrl || r.video || "",
       };
-
     await message.conn.sendMessage(
       message.from,
       {
         audio: buffer,
         mimetype: "audio/mpeg",
-        fileName: `${title.replace(/[^\w\s]/gi, "")}.mp3`,
+        fileName: `${title.replace(/[^\w\s]/gi, "")} .mp3`,
         contextInfo,
       },
       {
-        quoted: makeGiftQuote("sumon dev 🦠", message.bot),
+        quoted: makeGiftQuote("𝐒uɱꪸ๏η 𝐃ɛ̚𝐯'ʬ 合", message.bot),
       }
     );
     await message.react("✅");
@@ -412,82 +387,6 @@ Module({
     console.error("Play Error:", err);
     await message.react("❌");
     return message.send("❌ Something went wrong while fetching the song.");
-  }
-});
-
-/* ----------------- VIDEO (MP4) ----------------- */
-Module({
-  command: "video2",
-  package: "downloader",
-  description:
-    "Download YouTube video using multiple APIs (PrivateZia / Zen / Finix)",
-})(async (message, match) => {
-  const q = (match || "").trim();
-  if (!q)
-    return message.send(
-      "🎥 Please provide a video name!\n\nExample: .video On My Way"
-    );
-  try {
-    await message.send(`🔍 *Searching video:* ${q} ...`);
-    const apiList = [
-      "https://api.privatezia.biz.id",
-      "https://api.zenzxz.my.id",
-      "https://api.finix-id.my.id",
-    ];
-    const res = await tryApis(
-      apiList,
-      (base) =>
-        `${base}/api/downloader/ytplaymp4?query=${encodeURIComponent(q)}`,
-      { timeout: 30000 }
-    );
-    if (!res || !res.data?.result)
-      return message.send("❌ All APIs failed. Try again later.");
-    const data = res.data.result;
-    const { title, thumbnail, duration, downloadUrl, quality } = data;
-    if (!downloadUrl)
-      return message.send("⚠️ No download URL returned by API.");
-
-    // send thumbnail first if exists
-    const tempThumb = thumbnail
-      ? await (async () => {
-          try {
-            return await downloadToTemp(thumbnail, ".jpg");
-          } catch (e) {
-            return null;
-          }
-        })()
-      : null;
-    if (tempThumb) {
-      await message.conn.sendMessage(
-        message.from,
-        {
-          image: fs.readFileSync(tempThumb),
-          caption: `🎬 *${title}*\n📏 Duration: ${
-            duration || "unknown"
-          }s\n📺 Quality: ${quality || "HD"}\n> *Downloading video...* ⏳`,
-        },
-        { quoted: message.raw }
-      );
-    }
-
-    await message.react("⬇️");
-    const tempVideo = await downloadToTemp(downloadUrl, ".mp4");
-    await message.conn.sendMessage(
-      message.from,
-      {
-        video: fs.readFileSync(tempVideo),
-        mimetype: "video/mp4",
-        caption: `🎬 *${title}*\n*✅ Download Complete!*`,
-      },
-      { quoted: message.raw }
-    );
-
-    [tempVideo, tempThumb].forEach(safeUnlink);
-    await message.react("✅");
-  } catch (err) {
-    console.error("Video Error:", err);
-    await message.react("❌");
-    return message.send("❌ Something went wrong while downloading the video.");
   }
 });
 

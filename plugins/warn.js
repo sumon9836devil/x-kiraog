@@ -2,78 +2,119 @@ const { Module } = require("../lib/plugins");
 const warn = require("./bin/warnlib");
 const theme = require("../Themes/themes").getTheme();
 
+const { jidNormalizedUser } = global.baileys;
+
+function resolveTargetJid(message) {
+  try {
+    if (Array.isArray(message.mentions) && message.mentions.length > 0) {
+      return message.mentions[0];
+    }
+    const q = message.quoted;
+    if (q) {
+      return (
+        q.participant ??
+        q.participantAlt ??
+        q.sender ??
+        q.key?.participant ??
+        q.key?.participantAlt ??
+        null
+      );
+    }
+
+    return message.key?.participant ?? message.key?.participantAlt ?? null;
+  } catch (err) {
+    return null;
+  }
+}
+
 Module({
   command: "warn",
   package: "group",
   description: "Warn a user",
 })(async (message) => {
-  await message.loadGroupInfo();
-  if (!message.isGroup) return message.send(theme.isGroup);
-  if (!message.isAdmin && !message.isFromMe) return message.send(theme.isAdmin);
+  try {
+    await message.loadGroupInfo();
+    if (!message.isGroup) return message.send(theme.isGroup);
+    if (!message.isAdmin && !message.isFromMe)
+      return message.send(theme.isAdmin);
+    let target = resolveTargetJid(message);
+    if (!target) return message.send("*_Reply or mention a user_*");
+    target = jidNormalizedUser(target);
+    const res = await warn.addWarn(message.from, target, {
+      reason: "manual",
+      by: message.sender,
+    });
 
-  const target =
-    message.mentionedJid?.[0] ||
-    message.reply_message?.sender;
-
-  if (!target) return message.send("*_Reply or mention a user_*");
-
-  const res = await warn.addWarn(message.from, target, {
-    reason: "manual",
-    by: message.sender
-  });
-
-  if (res.reached) {
-    await message.send(`❌ Warn limit reached. User will be removed.`);
-    await message.client.groupParticipantsUpdate(
-      message.from,
-      [target],
-      "remove"
-    );
-  } else {
+    if (res?.reached) {
+      await message.send(`❌ Warn limit reached. User will be removed.`);
+      try {
+        await message.client.groupParticipantsUpdate(
+          message.from,
+          [target],
+          "remove"
+        );
+        await warn.removeWarn(message.from, target);
+      } catch (err) {
+        console.error("Failed to remove participant after warn limit:", err);
+        await message.send(
+          `⚠️ Couldn't remove user automatically, please remove manually.`
+        );
+      }
+    } else {
       await message.send(
-    `⚠️ Warning given\n\n` +
-    `User: @${target.split("@")[0]}\n` +
-    `Warn: ${res.count}/${res.limit}`,
-    { mentions: [target] }
-  );
-    return;
+        `⚠️ Warning given\n\n` +
+          `User: @${(target || "").split("@")[0]}\n` +
+          `Warn: ${res.count}/${res.limit}`,
+        { mentions: [target] }
+      );
+    }
+  } catch (err) {
+    console.error("[WARN COMMAND ERROR]", err);
+    try {
+      await message.send(
+        "_An error occurred while processing the warn command._"
+      );
+    } catch {}
   }
 });
-
 
 Module({
   command: "rmwarn",
   package: "group",
   description: "Remove a warning from a user",
 })(async (message) => {
-  await message.loadGroupInfo();
+  try {
+    await message.loadGroupInfo();
 
-  if (!message.isGroup) return message.send(theme.isGroup);
-  if (!message.isAdmin && !message.isFromMe)
-    return message.send(theme.isAdmin);
+    if (!message.isGroup) return message.send(theme.isGroup);
+    if (!message.isAdmin && !message.isFromMe)
+      return message.send(theme.isAdmin);
 
-  const target =
-    message.mentionedJid?.[0] ||
-    message.reply_message?.sender;
-
-  if (!target)
-    return message.send("*_Reply to a user or mention someone_*");
-  const current = await warn.getWarnCount(message.from, target);
-
-  if (!current || current < 1) {
+    let target = resolveTargetJid(message);
+    if (!target) return message.send("*_Reply to a user or mention someone_*");
+    target = jidNormalizedUser(target);
+    const current = await warn.getWarnCount(message.from, target);
+    if (!current || current < 1) {
+      return message.send(
+        `ℹ️ User @${(target || "").split("@")[0]} has no warnings.`,
+        {
+          mentions: [target],
+        }
+      );
+    }
+    const newCount = await warn.removeWarn(message.from, target);
     return message.send(
-      `ℹ️ User @${target.split("@")[0]} has no warnings.`,
+      `✅ Warning removed\n\n` +
+        `User: @${(target || "").split("@")[0]}\n` +
+        `Warns left: ${newCount}`,
       { mentions: [target] }
     );
+  } catch (err) {
+    console.error("[RMWARN COMMAND ERROR]", err);
+    try {
+      await message.send("_An error occurred while removing a warn._");
+    } catch {}
   }
-  // ➖ Remove one warn
-  const newCount = await warn.removeWarn(message.from, target);
-  return message.send(
-    `✅ Warning removed\n\n` +
-      `User: @${target.split("@")[0]}\n` +
-      `Warns left: ${newCount}`,
-    { mentions: [target] }
-  );
 });
 
 Module({
@@ -111,6 +152,6 @@ Module({
   }
 
   return message.send(text, {
-    mentions: Object.keys(data.users)
+    mentions: Object.keys(data.users),
   });
 });
