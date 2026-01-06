@@ -10,8 +10,7 @@ Module({
 })(async (m, text) => {
   if (!m.isGroup) return m.send(theme.isGroup);
   await m.loadGroupInfo();
-  if (!m.isAdmin) return m.send(theme.isAdmin);
-  try {
+   try {
     const conn = m.conn;
     const from = m.from;
     let groupMetadata = cache.getCached(from);

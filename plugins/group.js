@@ -373,45 +373,6 @@ Module({
   }
 });
 
-Module({
-  command: "admins",
-  package: "group",
-  aliases: ["adminlist"],
-  description: "List all group admins",
-})(async (message) => {
-  try {
-    await message.loadGroupInfo();
-
-    if (!message.isGroup) return message.send(theme.isGroup);
-
-    if (!message.groupAdmins || message.groupAdmins.length === 0) {
-      return message.send("ℹ️ _No admins found_");
-    }
-
-    let text = `╭━━━「 *GROUP ADMINS* 」━━━╮\n┃\n`;
-
-    // Owner first
-    if (message.groupOwner) {
-      text += `┃ 👑 @${message.groupOwner.split("@")[0]} (Owner)\n┃\n`;
-    }
-
-    // Other admins
-    let adminCount = 0;
-    message.groupAdmins.forEach((adminId) => {
-      if (!areJidsSame(message, adminId, message.groupOwner)) {
-        adminCount++;
-        text += `┃ ${adminCount}. @${adminId.split("@")[0]}\n`;
-      }
-    });
-
-    text += `┃\n╰━━━━━━━━━━━━━━━━━━╯\n\n*Total:* ${message.groupAdmins.length} admin(s)`;
-
-    await message.send(text, { mentions: message.groupAdmins });
-  } catch (error) {
-    console.error("Admins command error:", error);
-    await message.send("❌ _Failed to list admins_");
-  }
-});
 
 // ==================== GROUP SETTINGS ====================
 
@@ -826,7 +787,7 @@ Module({
 
     if (!message.isGroup) return message.send(theme.isGroup);
     if (!message.isFromMe) {
-      return message.send("❌ _Only bot owner can use this_");
+      return message.send("_Only bot owner can use this_");
     }
 
     await message.reply("👋 *Goodbye!*\n\nLeaving the group in 3 seconds...");
@@ -840,7 +801,7 @@ Module({
     }, 3000);
   } catch (error) {
     console.error("Leave command error:", error);
-    await message.send("❌ _Failed to leave group_");
+    await message.send("_Failed to leave group_");
   }
 });
 

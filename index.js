@@ -1,5 +1,5 @@
 const express = require("express");
-const { WhatsApp } = require("./lib/index");
+const { connect } = require("./lib/index");
 const config = require("./config.js");
 const app = express();
 const PORT = process.env.PORT || 8000;
@@ -31,8 +31,8 @@ app.listen(PORT, async () => {
     console.log("please set SESSION_ID in config.js");
     return;
   }
-    const wa = new WhatsApp('x-kira');
-    await wa.connect();
+ const conn = await connect();
+ 
     console.log(`WhatsApp session '${sessionId}' initialized`);
   } catch (err) {
     console.error("Failed to initialize WhatsApp session:", err?.message || err);
@@ -44,3 +44,31 @@ process.on("uncaughtException", (err) => {
   console.error("UncaughtException:", err);
   process.exit(1);
 });
+
+async function waitForOpen(sock, timeoutMs = 60000) {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      sock.ev.off("connection.update", handler);
+      reject(new Error("Timed out waiting for connection to open"));
+    }, timeoutMs);
+
+    const handler = (update) => {
+      const { connection, lastDisconnect } = update || {};
+
+      if (connection === "open") {
+        clearTimeout(timeout);
+        sock.ev.off("connection.update", handler);
+        resolve();
+        return;
+      } else if (connection === "close") {
+        clearTimeout(timeout);
+        sock.ev.off("connection.update", handler);
+        const err =
+          lastDisconnect?.error || new Error("Connection closed before open");
+        reject(err);
+      }
+    };
+
+    sock.ev.on("connection.update", handler);
+  });
+}
